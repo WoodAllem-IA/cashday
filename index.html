@@ -164,6 +164,12 @@ fieldset.radio legend{font-size:13px;font-weight:600;color:var(--muted);padding:
 .opt{display:flex;align-items:center;gap:12px;min-height:48px;padding:0 14px;border:1px solid var(--line);border-radius:12px;background:var(--bg);margin-bottom:8px;font-weight:600;cursor:pointer}
 .opt input{width:22px;height:22px;margin:0;accent-color:var(--accent);flex-shrink:0}
 .opt:has(input:checked){border-color:var(--accent);background:var(--accent-soft)}
+.cta{display:flex;flex-direction:column;gap:12px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px;margin-bottom:6px;box-shadow:var(--shadow)}
+.cta.go{border-color:#1FA855;background:var(--accent-soft)}
+.cta.done{background:var(--accent-soft);border-color:transparent}
+.cta b{display:block;font-family:var(--display);font-size:17px;font-weight:800}
+.cta span{font-size:14px;color:var(--muted)}
+.qhead{display:flex;flex-direction:column;gap:6px;margin-bottom:12px;font-size:13px;font-weight:600;color:var(--muted)}
 .calc{background:var(--accent-soft);border-radius:12px;padding:12px 14px;margin-bottom:14px;display:grid;grid-template-columns:1fr auto;gap:4px 12px;font-size:14px}
 .calc span{color:var(--muted)}
 .calc b{text-align:right}
@@ -218,9 +224,9 @@ const fmtShort=s=>{const d=parse(s);return pad(d.getDate())+"/"+pad(d.getMonth()
 
 /* ---------- dados ---------- */
 let S=load();
-function blank(){return{clients:[],loans:[],payments:[],settings:{pct:40,lateType:"fixo",lateValue:50,freq:"mensal",n:1}}}
+function blank(){return{clients:[],loans:[],payments:[],settings:{pct:40,lateType:"fixo",lateValue:50,freq:"mensal",n:1,chargeTime:"09:00"}}}
 function load(){
-  try{const raw=localStorage.getItem(KEY);if(raw){const d=JSON.parse(raw);return Object.assign(blank(),d)}}catch(e){}
+  try{const raw=localStorage.getItem(KEY);if(raw){const d=Object.assign(blank(),JSON.parse(raw));d.settings=Object.assign(blank().settings,d.settings);return d}}catch(e){}
   return seed();
 }
 function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
@@ -313,6 +319,36 @@ function header(){
     (S.sample?'<div class="banner"><span>Você está vendo clientes de exemplo.</span><button data-act="clearSample">Apagar exemplos</button></div>':'');
 }
 
+/* ---------- cobrança do dia ---------- */
+const nowHM=()=>{const d=new Date();return pad(d.getHours())+":"+pad(d.getMinutes())};
+const chargedToday=l=>l.chargedOn===today();
+function chargeCTA(list){
+  if(!list.length)return "";
+  const pend=list.filter(l=>!chargedToday(l)),ct=S.settings.chargeTime||"09:00",late=nowHM()>=ct;
+  if(!pend.length)return '<div class="cta done"><div><b>Cobranças de hoje enviadas</b><span>Você cobrou os '+list.length+(list.length>1?" clientes":" cliente")+' de hoje.</span></div></div>';
+  return '<div class="cta'+(late?" go":"")+'"><div><b>'+(late?"Hora de cobrar":"Cobrança marcada para "+ct)+'</b><span>'+pend.length+(pend.length>1?" clientes esperando":" cliente esperando")+' a mensagem de hoje.</span></div>'+
+   '<button class="btn wa" data-act="queue">'+I.wa+'Cobrar todos ('+pend.length+')</button></div>';
+}
+let Q=[],qi=0;
+function startQueue(){
+  const t=today();
+  Q=openLoans().filter(l=>l.nextDue<=t&&!chargedToday(l)).sort((a,b)=>a.nextDue.localeCompare(b.nextDue)).map(l=>l.id);qi=0;
+  if(!Q.length){toast("Todo mundo já foi cobrado hoje");return}
+  showQueue();
+}
+function showQueue(){
+  if(qi>=Q.length){closeSheet();render();toast("Pronto! Todas as cobranças de hoje foram abertas.");return}
+  const l=S.loans.find(x=>x.id===Q[qi]);if(!l){qi++;return showQueue()}
+  const c=client(l.clientId)||{name:"?"},lf=lateFee(l);
+  sheet('<div class="qhead"><span>Cobrança '+(qi+1)+' de '+Q.length+'</span><div class="bar"><i style="width:'+(qi/Q.length*100)+'%"></i></div></div>'+
+   '<h3 style="display:flex;align-items:center;gap:8px">'+esc(c.name)+scoreBadge(c.id,"sm")+'</h3>'+
+   '<div class="calc num'+(lf?" warn":"")+'"><span>'+(lf?"Total com multa":"Valor da parcela")+'</span><b class="tot">'+brl(parcel(l)+lf)+'</b><span>Situação</span><b>'+statusChip(l)+'</b></div>'+
+   '<div class="f"><label>Mensagem que vai ser enviada</label><div class="note">'+esc(waText(l))+'</div></div>'+
+   '<a class="btn wa block" href="'+waLink(l)+'" target="_blank" rel="noopener" data-qsend="'+l.id+'">'+I.wa+'Abrir WhatsApp e enviar</a>'+
+   '<div class="acts" style="margin-top:8px"><button class="btn ghost" data-close-btn>Parar</button><button class="btn ghost" data-act="qskip">Pular</button></div>'+
+   '<p class="hint" style="font-size:12px;color:var(--muted);margin:10px 0 0">Depois de enviar no WhatsApp, volte para o CashDay que o próximo cliente já vai estar aqui.</p>');
+}
+
 /* ---------- tela Hoje ---------- */
 function vHoje(){
   const t=today(),open=openLoans();
@@ -326,6 +362,7 @@ function vHoje(){
    '<div class="sum"><div><small>Vence hoje</small><b class="num">'+brl(sumToday)+'</b></div>'+
    '<div class="l"><small>Atrasado</small><b class="num">'+brl(sumLate)+'</b></div>'+
    '<div><small>A receber</small><b class="num">'+brl(street)+'</b></div></div>'+
+   chargeCTA(late.concat(now))+
    sec("Atrasados",late.length?late.length+(late.length>1?" clientes":" cliente"):"")+
    (late.length?'<div class="list">'+late.map(dueCard).join("")+'</div>':'<div class="empty">Ninguém atrasado. Boa!</div>')+
    sec("Vencem hoje",now.length?now.length+(now.length>1?" clientes":" cliente"):"")+
@@ -346,10 +383,10 @@ function statusChip(l){
 function dueCard(l){
   const c=client(l.clientId)||{name:"?"},t=today(),lf=lateFee(l),cls=l.nextDue<t?"late":l.nextDue===t?"today":"";
   return '<div class="due '+cls+'">'+
-    '<div class="row1"><button class="who" style="text-align:left" data-open="'+c.id+'"><b>'+esc(c.name)+scoreBadge(c.id,"sm")+'</b><span>Parcela '+(l.paid+1)+' de '+l.n+' · '+statusChip(l)+'</span></button>'+
+    '<div class="row1"><button class="who" style="text-align:left" data-open="'+c.id+'"><b>'+esc(c.name)+scoreBadge(c.id,"sm")+'</b><span>Parcela '+(l.paid+1)+' de '+l.n+' · '+statusChip(l)+(chargedToday(l)?' <span class="chip ok">Cobrado hoje</span>':'')+'</span></button>'+
     '<div class="amt"><b class="num">'+brl(parcel(l)+lf)+'</b><span>'+(lf?"com multa":"a receber")+'</span></div></div>'+
     '<div class="break num"><span>Parcela <b>'+brl(parcel(l))+'</b></span><span>Só juros <b>'+brl(jurosParc(l))+'</b></span>'+(lf?'<span>Multa <b>'+brl(lf)+'</b></span>':'')+'</div>'+
-    '<div class="acts"><a class="btn wa" href="'+waLink(l)+'" target="_blank" rel="noopener">'+I.wa+'Cobrar</a><button class="btn pri" data-pay="'+l.id+'">'+I.cash+'Recebi</button></div>'+
+    '<div class="acts"><a class="btn wa" href="'+waLink(l)+'" target="_blank" rel="noopener" data-wa="'+l.id+'">'+I.wa+'Cobrar</a><button class="btn pri" data-pay="'+l.id+'">'+I.cash+'Recebi</button></div>'+
   '</div>';
 }
 
@@ -421,7 +458,7 @@ function loanCard(l){
    '<span>Multa por atraso</span><b>'+lateRule(l)+'</b>'+
    '<span>Garantia</span><b style="overflow-wrap:anywhere">'+(l.guarantee?esc(l.guarantee):"Sem garantia")+'<br><button class="link" style="color:var(--accent)" data-act="editGar" data-l="'+l.id+'">'+(l.guarantee?"Alterar":"Marcar garantia")+'</button></b>'+
    (lf?'<span style="color:var(--late)">Multa até hoje</span><b style="color:var(--late)">'+brl(lf)+'</b>':'')+'</div>'+
-   (open?'<div class="acts"><a class="btn wa" href="'+waLink(l)+'" target="_blank" rel="noopener">'+I.wa+'Cobrar</a><button class="btn pri" data-pay="'+l.id+'">'+I.cash+'Recebi</button></div>':'')+
+   (open?'<div class="acts"><a class="btn wa" href="'+waLink(l)+'" target="_blank" rel="noopener" data-wa="'+l.id+'">'+I.wa+'Cobrar</a><button class="btn pri" data-pay="'+l.id+'">'+I.cash+'Recebi</button></div>':'')+
    '<button class="link" data-act="delLoan" data-l="'+l.id+'" style="align-self:flex-start;color:var(--muted)">Excluir empréstimo</button></div>';
 }
 const KIND={parcela:"Parcela",juros:"Só juros",quitacao:"Quitação"};
@@ -444,8 +481,10 @@ function vAjustes(){
    '<div class="two"><div class="f"><label for="s-lt">Multa por dia</label><select id="s-lt"><option value="fixo"'+(s.lateType==="fixo"?" selected":"")+'>Valor fixo (R$)</option><option value="pct"'+(s.lateType==="pct"?" selected":"")+'>Porcentagem (%)</option></select></div>'+
    '<div class="f"><label for="s-lv">Valor</label><input id="s-lv" type="number" inputmode="decimal" step="0.01" value="'+s.lateValue+'"></div></div>'+
    '<button class="btn pri" data-act="saveSettings">Salvar padrão</button></div>'+
-  '<div class="card"><h3>Lembrete todo dia no iPhone</h3><div class="note" style="background:transparent;padding:0">O iPhone pode te avisar todo dia de manhã para abrir o CashDay. Leva 1 minuto para configurar:<ol>'+
-   '<li>Abra o app <b>Atalhos</b> e toque em <b>Automação</b>.</li><li>Toque em <b>+</b>, escolha <b>Horário do Dia</b>, coloque 9:00 e <b>Diariamente</b>. Marque <b>Executar Imediatamente</b>.</li>'+
+  '<div class="card"><h3>Horário da cobrança</h3><div class="f" style="margin:0"><label for="s-time">Que horas você quer cobrar os clientes?</label><input id="s-time" type="time" value="'+esc(s.chargeTime||"09:00")+'"><span class="hint">A partir desse horário a tela Hoje mostra o botão "Cobrar todos".</span></div>'+
+   '<button class="btn pri" data-act="saveTime">Salvar horário</button></div>'+
+  '<div class="card"><h3>Aviso no iPhone nesse horário</h3><div class="note" style="background:transparent;padding:0">Para o iPhone te avisar todo dia na hora da cobrança. Leva 1 minuto:<ol>'+
+   '<li>Abra o app <b>Atalhos</b> e toque em <b>Automação</b>.</li><li>Toque em <b>+</b>, escolha <b>Horário do Dia</b>, coloque <b>'+esc(s.chargeTime||"09:00")+'</b> e <b>Diariamente</b>. Marque <b>Executar Imediatamente</b>.</li>'+
    '<li>Adicione a ação <b>Mostrar Notificação</b> com o texto "Hora de cobrar: abra o CashDay".</li></ol></div></div>'+
   '<div class="card"><h3>Cópia de segurança</h3><div class="note" style="background:transparent;padding:0">Os dados ficam guardados só neste celular. Copie o backup de vez em quando e mande para você mesmo no WhatsApp ou cole numa nota.</div>'+
    '<div class="acts"><button class="btn sec2" data-act="copyBackup">Copiar backup</button><button class="btn ghost" data-act="restore">Restaurar</button></div></div>'+
@@ -601,6 +640,8 @@ document.addEventListener("click",e=>{
   if(b.hasAttribute("data-back")){go({tab:"clientes",q:view.q});return}
   if(b.dataset.open){closeSheet();go({tab:"clientes",client:b.dataset.open});return}
   if(b.dataset.pay){payForm(b.dataset.pay);return}
+  if(b.dataset.wa||b.dataset.qsend){const l=S.loans.find(x=>x.id===(b.dataset.wa||b.dataset.qsend));if(l){l.chargedOn=today();save()}
+    if(b.dataset.qsend){qi++;setTimeout(showQueue,400)}else setTimeout(render,400);return}
   const seg=b.parentElement&&b.parentElement.classList.contains("seg")?b.parentElement:null;
   if(seg&&b.dataset.v){
     seg.dataset.v=b.dataset.v;seg.querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed",x===b));
@@ -614,6 +655,8 @@ document.addEventListener("click",e=>{
   else if(a==="newLoanPick")pickClientForLoan();
   else if(a==="newLoan")loanForm(b.dataset.c);
   else if(a==="undo")undo(b.dataset.p);
+  else if(a==="queue")startQueue();
+  else if(a==="qskip"){qi++;showQueue()}
   else if(a==="editGar")garForm(b.dataset.l);
   else if(a==="delClient"){const c=client(b.dataset.c);confirmSheet("Excluir "+c.name+"?","Os empréstimos e o histórico de pagamentos dessa pessoa também serão apagados.","Excluir",()=>{
     S.loans=S.loans.filter(l=>l.clientId!==c.id);S.payments=S.payments.filter(p=>p.clientId!==c.id);S.clients=S.clients.filter(x=>x.id!==c.id);save();view={tab:"clientes"};toast("Cliente excluído")})}
@@ -621,7 +664,8 @@ document.addEventListener("click",e=>{
     S.loans=S.loans.filter(l=>l.id!==id);S.payments=S.payments.filter(p=>p.loanId!==id);save();toast("Empréstimo excluído")})}
   else if(a==="clearSample"){confirmSheet("Apagar os exemplos?","Os clientes de exemplo somem e o app fica pronto para os seus clientes de verdade.","Apagar exemplos",()=>{
     S.clients=S.clients.filter(x=>!x.sample);S.loans=S.loans.filter(x=>!x.sample);S.payments=S.payments.filter(x=>!x.sample);S.sample=false;save();view={tab:view.tab};toast("Exemplos apagados")})}
-  else if(a==="saveSettings"){S.settings={pct:Number($("#s-pct").value)||0,n:Math.max(1,parseInt($("#s-n").value)||1),freq:$("#s-freq").value,lateType:$("#s-lt").value,lateValue:Number($("#s-lv").value)||0};save();toast("Padrão salvo")}
+  else if(a==="saveTime"){S.settings.chargeTime=$("#s-time").value||"09:00";save();render();toast("Horário salvo: "+S.settings.chargeTime)}
+  else if(a==="saveSettings"){S.settings={chargeTime:S.settings.chargeTime||"09:00",pct:Number($("#s-pct").value)||0,n:Math.max(1,parseInt($("#s-n").value)||1),freq:$("#s-freq").value,lateType:$("#s-lt").value,lateValue:Number($("#s-lv").value)||0};save();toast("Padrão salvo")}
   else if(a==="copyBackup"){const txt=JSON.stringify(S);
     const fallback=()=>{sheet('<h3>Seu backup</h3><div class="f"><label for="bk">Selecione tudo e copie</label><textarea id="bk" readonly>'+esc(txt)+'</textarea></div><button class="btn ghost block" data-close-btn>Fechar</button>');$("#bk").select()};
     try{navigator.clipboard.writeText(txt).then(()=>toast("Backup copiado. Cole no WhatsApp ou numa nota."),fallback)}catch(err){fallback()}}
@@ -647,6 +691,7 @@ document.addEventListener("keydown",e=>{if(e.key==="Escape")closeSheet()});
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&!$("#layer").innerHTML)render()});
 
 save();render();
+setInterval(()=>{if(view.tab==="hoje"&&!$("#layer").innerHTML&&!document.hidden)render()},60000);
 try{if("serviceWorker" in navigator&&window.CASHDAY_STANDALONE)navigator.serviceWorker.register("sw.js")}catch(e){}
 })();
 </script>
