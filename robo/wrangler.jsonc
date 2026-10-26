@@ -1,0 +1,7 @@
+{
+  "name": "cashday-robo",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-01",
+  "kv_namespaces": [{ "binding": "DATA" }],
+  "triggers": { "crons": ["*/2 * * * *"] }
+}

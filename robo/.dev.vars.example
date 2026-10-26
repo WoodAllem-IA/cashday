@@ -1,0 +1,4 @@
+SENHA_ROBO="crie-uma-senha"
+ZAPI_INSTANCIA="id-da-instancia"
+ZAPI_TOKEN="token-da-instancia"
+ZAPI_CLIENT_TOKEN="token-de-seguranca"

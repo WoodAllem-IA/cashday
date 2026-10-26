@@ -72,6 +72,7 @@ a{color:var(--accent)}
 .score{display:inline-grid;place-items:center;min-width:26px;height:26px;padding:0 6px;border-radius:99px;font-weight:800;font-size:14px;font-variant-numeric:tabular-nums;color:var(--on-tone);vertical-align:middle}
 .score.good{background:var(--ok)}.score.mid{background:var(--today)}.score.bad{background:var(--late)}
 .score.big{min-width:40px;height:40px;font-size:19px;font-family:var(--display);flex-shrink:0}
+.due .who .score,.score.sm{color:var(--on-tone)}
 .score.sm{min-width:24px;height:24px;font-size:13px;margin-left:6px;font-family:var(--body)}
 .sbar{display:flex;align-items:center;gap:12px}
 .sbar .meter{flex:1;min-width:0}
@@ -213,7 +214,41 @@ function load(){
   try{const raw=localStorage.getItem(KEY);if(raw){const d=Object.assign(blank(),JSON.parse(raw));d.settings=Object.assign(blank().settings,d.settings);return d}}catch(e){}
   return seed();
 }
-function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}queueSync()}
+
+/* ---------- robô de envio automático ---------- */
+let syncT=null,robo={state:"off",info:null,err:""};
+const roboOn=()=>!!(S.robot&&S.robot.url&&S.robot.pw);
+function queueSync(){if(!roboOn())return;clearTimeout(syncT);syncT=setTimeout(()=>syncRobot(),2500)}
+async function roboCall(path,body){
+  const url=S.robot.url.replace(/\/+$/,"")+path;
+  const r=await fetch(url,{method:body?"POST":"GET",headers:{"Content-Type":"application/json","X-Senha":S.robot.pw},body:body?JSON.stringify(body):undefined});
+  let j={};try{j=await r.json()}catch(e){}
+  if(!r.ok||!j.ok)throw new Error(j.erro||("O robô respondeu "+r.status));
+  return j;
+}
+async function syncRobot(showToast){
+  if(!roboOn())return;
+  robo.state="sync";
+  try{
+    const info=await roboCall("/sync",{clients:S.clients,loans:S.loans,settings:S.settings});
+    robo={state:"ok",info,err:""};
+    const t=today();let ch=false;
+    Object.keys(info.enviadosHoje||{}).forEach(id=>{const l=S.loans.find(x=>x.id===id);if(l&&l.chargedOn!==t){l.chargedOn=t;ch=true}});
+    if(ch)try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}
+    if(showToast)toast("Robô conectado");
+  }catch(e){robo={state:"err",info:null,err:String(e.message||e)};if(showToast)toast("Não conectou: "+robo.err)}
+  if(!$("#layer").innerHTML&&(view.tab==="hoje"||view.tab==="ajustes"))render();
+}
+function roboStatusHTML(){
+  if(!roboOn())return '<div class="note">Preencha o endereço e a senha do robô para conectar.</div>';
+  if(robo.state==="err")return '<div class="note" style="color:var(--late)">Não consegui falar com o robô: '+esc(robo.err)+'</div>';
+  if(robo.state!=="ok")return '<div class="note">Conectando ao robô...</div>';
+  const i=robo.info,log=(i.log||[]).slice(0,6);
+  return '<div class="note"><b style="color:var(--ink)">Robô conectado.</b> '+(i.zapi?"WhatsApp (Z-API) configurado. ":'<span style="color:var(--late)">Faltam os códigos da Z-API no robô.</span> ')+
+   (i.ligado?"Envio automático ligado às "+esc(i.horario)+".":"Envio automático desligado.")+' Hoje: '+Object.keys(i.enviadosHoje||{}).length+' enviadas, '+i.pendentes+' na fila.'+
+   (log.length?'<div style="margin-top:8px">'+log.map(x=>'<div class="num" style="font-size:13px">'+esc(x.at.slice(11,16))+' '+esc(fmtD(x.date))+' · '+esc(x.name)+' · '+(x.ok?'<span style="color:var(--ok)">enviada</span>':'<span style="color:var(--late)">erro: '+esc(x.error||"")+'</span>')+'</div>').join("")+'</div>':'')+'</div>';
+}
 
 function seed(){
   const d=blank(),t=today();
@@ -309,6 +344,10 @@ const chargedToday=l=>l.chargedOn===today();
 function chargeCTA(list){
   if(!list.length)return "";
   const pend=list.filter(l=>!chargedToday(l)),ct=S.settings.chargeTime||"09:00",late=nowHM()>=ct;
+  const auto=roboOn()&&S.settings.autoSend;
+  const pendReal=pend.filter(l=>!l.sample&&!(client(l.clientId)||{}).sample);
+  if(auto&&pendReal.length)return '<div class="cta"><div><b>Envio automático ligado</b><span>'+(late?"O robô está mandando as cobranças agora, uma a cada 2 minutos. ":"O robô cobra sozinho às "+ct+". ")+pendReal.length+(pendReal.length>1?" clientes na fila.":" cliente na fila.")+'</span></div>'+
+   '<button class="btn ghost" data-act="queue">Cobrar agora pelo meu celular</button></div>';
   if(!pend.length)return '<div class="cta done"><div><b>Cobranças de hoje enviadas</b><span>Você cobrou os '+list.length+(list.length>1?" clientes":" cliente")+' de hoje.</span></div></div>';
   return '<div class="cta'+(late?" go":"")+'"><div><b>'+(late?"Hora de cobrar":"Cobrança marcada para "+ct)+'</b><span>'+pend.length+(pend.length>1?" clientes esperando":" cliente esperando")+' a mensagem de hoje.</span></div>'+
    '<button class="btn wa" data-act="queue">'+I.wa+'Cobrar todos ('+pend.length+')</button></div>';
@@ -467,6 +506,14 @@ function vAjustes(){
    '<button class="btn pri" data-act="saveSettings">Salvar padrão</button></div>'+
   '<div class="card"><h3>Horário da cobrança</h3><div class="f" style="margin:0"><label for="s-time">Que horas você quer cobrar os clientes?</label><input id="s-time" type="time" value="'+esc(s.chargeTime||"09:00")+'"><span class="hint">A partir desse horário a tela Hoje mostra o botão "Cobrar todos".</span></div>'+
    '<button class="btn pri" data-act="saveTime">Salvar horário</button></div>'+
+  '<div class="card"><h3>Envio automático pelo WhatsApp</h3>'+
+   '<label class="opt" style="margin:0"><input type="checkbox" id="s-auto"'+(s.autoSend?" checked":"")+'><span>Mandar as cobranças sozinho no horário</span></label>'+
+   '<div class="f" style="margin:0"><label for="s-rurl">Endereço do robô</label><input id="s-rurl" type="url" inputmode="url" autocapitalize="off" placeholder="https://cashday-robo.seunome.workers.dev" value="'+esc((S.robot||{}).url||"")+'"></div>'+
+   '<div class="f" style="margin:0"><label for="s-rpw">Senha do robô</label><input id="s-rpw" type="password" autocomplete="off" value="'+esc((S.robot||{}).pw||"")+'"></div>'+
+   '<div class="f" style="margin:0"><label for="s-rph">Seu WhatsApp (para o teste)</label><input id="s-rph" type="tel" inputmode="tel" value="'+esc((S.robot||{}).phone||"")+'"></div>'+
+   roboStatusHTML()+
+   '<div class="acts"><button class="btn pri" data-act="saveRobo">Salvar e conectar</button><button class="btn sec2" data-act="testRobo">Mandar teste</button></div>'+
+   '<span class="hint" style="font-size:12px;color:var(--muted)">O robô manda uma mensagem a cada 2 minutos, entre o horário escolhido e as 21h, e nunca cobra a mesma pessoa duas vezes no dia. Clientes de exemplo nunca recebem.</span></div>'+
   '<div class="card"><h3>Aviso no iPhone nesse horário</h3><div class="note" style="background:transparent;padding:0">Para o iPhone te avisar todo dia na hora da cobrança. Leva 1 minuto:<ol>'+
    '<li>Abra o app <b>Atalhos</b> e toque em <b>Automação</b>.</li><li>Toque em <b>+</b>, escolha <b>Horário do Dia</b>, coloque <b>'+esc(s.chargeTime||"09:00")+'</b> e <b>Diariamente</b>. Marque <b>Executar Imediatamente</b>.</li>'+
    '<li>Adicione a ação <b>Mostrar Notificação</b> com o texto "Hora de cobrar: abra o CashDay".</li></ol></div></div>'+
@@ -648,8 +695,13 @@ document.addEventListener("click",e=>{
     S.loans=S.loans.filter(l=>l.id!==id);S.payments=S.payments.filter(p=>p.loanId!==id);save();toast("Empréstimo excluído")})}
   else if(a==="clearSample"){confirmSheet("Apagar os exemplos?","Os clientes de exemplo somem e o app fica pronto para os seus clientes de verdade.","Apagar exemplos",()=>{
     S.clients=S.clients.filter(x=>!x.sample);S.loans=S.loans.filter(x=>!x.sample);S.payments=S.payments.filter(x=>!x.sample);S.sample=false;save();view={tab:view.tab};toast("Exemplos apagados")})}
+  else if(a==="saveRobo"){S.robot={url:$("#s-rurl").value.trim(),pw:$("#s-rpw").value,phone:$("#s-rph").value.replace(/\D/g,"")};S.settings.autoSend=$("#s-auto").checked;
+    try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}robo.state="sync";render();syncRobot(true)}
+  else if(a==="testRobo"){const ph=$("#s-rph").value.replace(/\D/g,"");if(!roboOn()){toast("Salve o endereço e a senha primeiro");return}if(ph.length<10){toast("Coloque seu WhatsApp com DDD");return}
+    S.robot.phone=ph;try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}
+    roboCall("/teste",{phone:ph}).then(()=>toast("Teste enviado. Olhe seu WhatsApp."),e=>toast("Teste falhou: "+e.message))}
   else if(a==="saveTime"){S.settings.chargeTime=$("#s-time").value||"09:00";save();render();toast("Horário salvo: "+S.settings.chargeTime)}
-  else if(a==="saveSettings"){S.settings={chargeTime:S.settings.chargeTime||"09:00",pct:Number($("#s-pct").value)||0,n:Math.max(1,parseInt($("#s-n").value)||1),freq:$("#s-freq").value,lateType:$("#s-lt").value,lateValue:Number($("#s-lv").value)||0};save();toast("Padrão salvo")}
+  else if(a==="saveSettings"){S.settings={chargeTime:S.settings.chargeTime||"09:00",autoSend:!!S.settings.autoSend,pct:Number($("#s-pct").value)||0,n:Math.max(1,parseInt($("#s-n").value)||1),freq:$("#s-freq").value,lateType:$("#s-lt").value,lateValue:Number($("#s-lv").value)||0};save();toast("Padrão salvo")}
   else if(a==="copyBackup"){const txt=JSON.stringify(S);
     const fallback=()=>{sheet('<h3>Seu backup</h3><div class="f"><label for="bk">Selecione tudo e copie</label><textarea id="bk" readonly>'+esc(txt)+'</textarea></div><button class="btn ghost block" data-close-btn>Fechar</button>');$("#bk").select()};
     try{navigator.clipboard.writeText(txt).then(()=>toast("Backup copiado. Cole no WhatsApp ou numa nota."),fallback)}catch(err){fallback()}}
@@ -672,9 +724,9 @@ document.addEventListener("submit",e=>{e.preventDefault();const id=e.target.id;i
   const l=S.loans.find(x=>x.id===$("#g-l").value),g=garVal("g");if(garHas("g")&&!g){toast("Escreva qual é a garantia");return}
   l.guarantee=g;save();closeSheet();render();toast("Garantia salva")}});
 document.addEventListener("keydown",e=>{if(e.key==="Escape")closeSheet()});
-document.addEventListener("visibilitychange",()=>{if(!document.hidden&&!$("#layer").innerHTML)render()});
+document.addEventListener("visibilitychange",()=>{if(!document.hidden){if(roboOn())syncRobot();if(!$("#layer").innerHTML)render()}});
 
-save();render();
+save();render();syncRobot();
 setInterval(()=>{if(view.tab==="hoje"&&!$("#layer").innerHTML&&!document.hidden)render()},60000);
 try{if("serviceWorker" in navigator&&window.CASHDAY_STANDALONE)navigator.serviceWorker.register("sw.js")}catch(e){}
 })();
