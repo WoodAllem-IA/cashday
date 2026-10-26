@@ -526,9 +526,11 @@ function isLastPayment(p){const ps=S.payments.filter(x=>x.loanId===p.loanId);ret
 
 /* ---------- painel ---------- */
 let PF={per:"mes",cli:""};
-const PER={mes:"Este mês",ant:"Mês passado","3m":"3 meses","12m":"12 meses",tudo:"Tudo"};
+const PER={hoje:"Hoje","7d":"7 dias",mes:"Este mês",ant:"Mês passado","3m":"3 meses","12m":"12 meses",tudo:"Tudo"};
 function perRange(){
   const t=today(),d=parse(t),first=toISO(new Date(d.getFullYear(),d.getMonth(),1));
+  if(PF.per==="hoje")return[t,t];
+  if(PF.per==="7d")return[addDays(t,-6),t];
   if(PF.per==="mes")return[first,t];
   if(PF.per==="ant")return[toISO(new Date(d.getFullYear(),d.getMonth()-1,1)),addDays(first,-1)];
   if(PF.per==="3m")return[toISO(new Date(d.getFullYear(),d.getMonth()-2,1)),t];
@@ -574,7 +576,10 @@ function vPainel(){
   const onTime=pays.length?Math.round(pays.filter(p=>!p.lateDays).length/pays.length*100):null;
   // gráfico: meses do período (no máximo 12; "este mês" e "mês passado" mostram os últimos 6)
   const d=parse(t);let n=PF.per==="3m"?3:PF.per==="12m"||PF.per==="tudo"?12:6;
-  const rows=[];for(let i=n-1;i>=0;i--){const m=new Date(d.getFullYear(),d.getMonth()-i,1),k=toISO(m).slice(0,7);
+  const daily=PF.per==="hoje"||PF.per==="7d",rows=[];
+  if(daily)for(let i=6;i>=0;i--){const k=addDays(t,-i),ps=S.payments.filter(p=>p.date===k&&inCli(p));
+    rows.push({label:fmtShort(k),rec:ps.reduce((s,p)=>s+p.amount,0),luc:ps.reduce((s,p)=>s+payProfit(p),0)})}
+  else for(let i=n-1;i>=0;i--){const m=new Date(d.getFullYear(),d.getMonth()-i,1),k=toISO(m).slice(0,7);
     const ps=S.payments.filter(p=>monthKey(p.date)===k&&inCli(p));rows.push({label:MES[m.getMonth()],rec:ps.reduce((s,p)=>s+p.amount,0),luc:ps.reduce((s,p)=>s+payProfit(p),0)})}
   // rankings por cliente
   const by=S.clients.filter(c=>!cf||c.id===cf).map(c=>{
@@ -589,7 +594,7 @@ function vPainel(){
   const debt=by.filter(x=>x.owed>0).sort((x,y)=>y.owed-x.owed).slice(0,5).map(x=>({c:x.c,val:brl(x.owed),sub:"Falta receber"}));
   const cs=[...S.clients].sort((x,y)=>x.name.localeCompare(y.name,"pt-BR"));
   return header()+
-   '<div class="sec" style="margin-top:4px"><h2>Painel</h2><span>'+(PF.per==="tudo"?"Desde o começo":fmtD(a)+" a "+fmtD(b))+'</span></div>'+
+   '<div class="sec" style="margin-top:4px"><h2>Painel</h2><span>'+(PF.per==="tudo"?"Desde o começo":a===b?fmtD(a):fmtD(a)+" a "+fmtD(b))+'</span></div>'+
    '<div class="pills" role="group" aria-label="Período">'+Object.keys(PER).map(k=>'<button data-per="'+k+'" aria-pressed="'+(PF.per===k)+'">'+PER[k]+'</button>').join("")+'</div>'+
    '<select class="search" id="pf-cli" aria-label="Cliente"><option value="">Todos os clientes</option>'+cs.map(c=>'<option value="'+c.id+'"'+(c.id===cf?" selected":"")+'>'+esc(c.name)+'</option>').join("")+'</select>'+
    '<div class="kpis">'+
@@ -600,7 +605,7 @@ function vPainel(){
     kpi("Atrasado agora",brl(lateAmt),lateNow.length+(lateNow.length===1?" parcela":" parcelas"),lateNow.length?"bad":"")+
     kpi("Pagou em dia",onTime===null?"-":onTime+"%","dos pagamentos do período",onTime!==null&&onTime<70?"bad":"")+
    '</div>'+
-   '<div class="card" style="margin-top:14px"><h3>Recebido e lucro por mês</h3>'+barChart(rows)+
+   '<div class="card" style="margin-top:14px"><h3>Recebido e lucro por '+(daily?"dia (últimos 7)":"mês")+'</h3>'+barChart(rows)+
     '<div class="legend"><span><i style="background:var(--accent-soft)"></i>Recebido</span><span><i style="background:var(--accent)"></i>Lucro</span></div></div>'+
    (cf?'':sec("Melhores clientes","mais lucro")+rankList(best,"Ninguém pagou nada nesse período.")+
    sec("Deram mais trabalho","mais atrasos")+rankList(work,"Ninguém atrasou nesse período. Boa!")+
