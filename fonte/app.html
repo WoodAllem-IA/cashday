@@ -211,7 +211,7 @@ const fmtShort=s=>{const d=parse(s);return pad(d.getDate())+"/"+pad(d.getMonth()
 let S=load();
 function blank(){return{clients:[],loans:[],payments:[],settings:{pct:40,lateType:"fixo",lateValue:50,freq:"mensal",n:1,chargeTime:"09:00"}}}
 function load(){
-  try{const raw=localStorage.getItem(KEY);if(raw){const d=Object.assign(blank(),JSON.parse(raw));d.settings=Object.assign(blank().settings,d.settings);return d}}catch(e){}
+  try{const raw=localStorage.getItem(KEY);if(raw){const d=Object.assign(blank(),JSON.parse(raw));d.settings=Object.assign(blank().settings,d.settings);const m=d.settings.msg;if(m&&/^\{nome\}, sua \{parcela\}/.test(m.late||"")&&/^\{nome\}, hoje vence/.test(m.today||""))d.settings.msg=null;return d}}catch(e){}
   return seed();
 }
 function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}queueSync()}
@@ -416,16 +416,17 @@ function dueCard(l){
 /* ---------- WhatsApp ---------- */
 function waNumber(p){let d=String(p||"").replace(/\D/g,"");if(d.length<=11)d="55"+d;return d}
 const MSG_DEFAULT={
-  late:"{nome}, sua {parcela}, no valor de {valor}, venceu em {vencimento} e está com {dias} de atraso.\n\nMulta até hoje: {multa}.\nTotal para pagar hoje: {total}.\n\nA multa aumenta {regra} até o pagamento. Regularize hoje. Se não tiver o valor completo, pague no mínimo os juros com a multa, {juros}, para não acumular mais.\n\nAguardo o comprovante ainda hoje.",
-  today:"{nome}, hoje vence sua {parcela}, no valor de {valor}.\n\nO pagamento deve ser feito até o fim do dia. A partir de amanhã entra multa de {regra}.\n\nSe não tiver o valor completo, pague no mínimo os juros de {juros} hoje.\n\nAguardo o comprovante.",
-  before:"{nome}, sua {parcela}, no valor de {valor}, vence em {vencimento}.\n\nDeixe o pagamento organizado. Depois do vencimento entra multa de {regra}."
+  late:"{saudacao}\n\nParcela {parc}: {valor}\nVencimento: {vencimento}\nAtraso: {dias}\nMulta: {multa}\nTotal: {total}",
+  today:"{saudacao}\n\nParcela {parc}: {valor}\nVencimento: hoje, {vencimento}",
+  before:"{saudacao}\n\nParcela {parc}: {valor}\nVencimento: {vencimento}"
 };
-const MSG_KEYS=[["{nome}","primeiro nome"],["{parcela}","ex.: parcela 2 de 4"],["{valor}","valor da parcela"],["{vencimento}","data"],["{dias}","dias de atraso"],["{multa}","multa até hoje"],["{total}","parcela + multa"],["{juros}","só juros (+ multa)"],["{regra}","ex.: R$ 50,00 por dia"]];
+const MSG_KEYS=[["{saudacao}","Bom dia, Boa tarde ou Boa noite"],["{parc}","ex.: 2/4"],["{nome}","primeiro nome"],["{parcela}","ex.: parcela 2 de 4"],["{valor}","valor da parcela"],["{vencimento}","data"],["{dias}","dias de atraso"],["{multa}","multa até hoje"],["{total}","parcela + multa"],["{juros}","só juros (+ multa)"],["{regra}","ex.: R$ 50,00 por dia"]];
 const msgTpl=k=>((S.settings.msg||{})[k])||MSG_DEFAULT[k];
 function waText(l){
   const c=client(l.clientId)||{name:""},t=today(),dl=daysLate(l),lf=lateFee(l);
   const kind=dl>0?"late":l.nextDue===t?"today":"before";
-  const v={nome:c.name.replace(/\s*\(exemplo\)/,"").split(" ")[0],parcela:"parcela "+(l.paid+1)+" de "+l.n,valor:brl(parcel(l)),vencimento:fmtD(l.nextDue),
+  const h=new Date().getHours();
+  const v={saudacao:h<5?"Boa noite":h<12?"Bom dia":h<18?"Boa tarde":"Boa noite",parc:(l.paid+1)+"/"+l.n,nome:c.name.replace(/\s*\(exemplo\)/,"").split(" ")[0],parcela:"parcela "+(l.paid+1)+" de "+l.n,valor:brl(parcel(l)),vencimento:fmtD(l.nextDue),
     dias:dl+(dl===1?" dia":" dias"),multa:brl(lf),total:brl(parcel(l)+lf),juros:brl(jurosParc(l)+lf),regra:lateRule(l)};
   return msgTpl(kind).replace(/\{(\w+)\}/g,(m,k)=>k in v?v[k]:m);
 }

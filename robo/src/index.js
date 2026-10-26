@@ -38,14 +38,16 @@ function lateFee(l, t) {
 }
 const lateRule = l => l.lateType === "pct" ? String(l.lateValue).replace(".", ",") + "% da parcela por dia" : brl(l.lateValue) + " por dia";
 const MSG_DEFAULT = {
-  late: "{nome}, sua {parcela}, no valor de {valor}, venceu em {vencimento} e está com {dias} de atraso.\n\nMulta até hoje: {multa}.\nTotal para pagar hoje: {total}.\n\nA multa aumenta {regra} até o pagamento. Regularize hoje. Se não tiver o valor completo, pague no mínimo os juros com a multa, {juros}, para não acumular mais.\n\nAguardo o comprovante ainda hoje.",
-  today: "{nome}, hoje vence sua {parcela}, no valor de {valor}.\n\nO pagamento deve ser feito até o fim do dia. A partir de amanhã entra multa de {regra}.\n\nSe não tiver o valor completo, pague no mínimo os juros de {juros} hoje.\n\nAguardo o comprovante."
+  late: "{saudacao}\n\nParcela {parc}: {valor}\nVencimento: {vencimento}\nAtraso: {dias}\nMulta: {multa}\nTotal: {total}",
+  today: "{saudacao}\n\nParcela {parc}: {valor}\nVencimento: hoje, {vencimento}"
 };
 // Mesmo modelo de mensagem editado em Ajustes no app
 function message(l, c, t, settings) {
   const dl = daysLate(l, t), lf = lateFee(l, t), kind = dl > 0 ? "late" : "today";
   const tpl = (settings && settings.msg && settings.msg[kind]) || MSG_DEFAULT[kind];
+  const h = Number(nowBR().hm.slice(0, 2));
   const v = {
+    saudacao: h < 5 ? "Boa noite" : h < 12 ? "Bom dia" : h < 18 ? "Boa tarde" : "Boa noite", parc: `${l.paid + 1}/${l.n}`,
     nome: c.name.replace(/\s*\(exemplo\)/, "").split(" ")[0], parcela: `parcela ${l.paid + 1} de ${l.n}`, valor: brl(parcel(l)),
     vencimento: fmtD(l.nextDue), dias: dl + (dl === 1 ? " dia" : " dias"), multa: brl(lf), total: brl(parcel(l) + lf),
     juros: brl(jurosParc(l) + lf), regra: lateRule(l)
