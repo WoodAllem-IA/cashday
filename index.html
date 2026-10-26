@@ -382,8 +382,8 @@ function showQueue(){
   sheet('<div class="qhead"><span>Cobrança '+(qi+1)+' de '+Q.length+'</span><div class="bar"><i style="width:'+(qi/Q.length*100)+'%"></i></div></div>'+
    '<h3 style="display:flex;align-items:center;gap:8px">'+esc(c.name)+scoreBadge(c.id,"sm")+'</h3>'+
    '<div class="calc num'+(lf?" warn":"")+'"><span>'+(lf?"Total com multa":"Valor da parcela")+'</span><b class="tot">'+brl(parcel(l)+lf)+'</b><span>Situação</span><b>'+statusChip(l)+'</b></div>'+
-   '<div class="f"><label>Mensagem que vai ser enviada</label><div class="note" style="white-space:pre-line">'+esc(waText(l))+'</div></div>'+
-   '<a class="btn wa block" href="'+waLink(l)+'" target="_blank" rel="noopener" data-qsend="'+l.id+'">'+I.wa+'Abrir WhatsApp e enviar</a>'+
+   '<div class="f"><label for="m-txt">Mensagem (pode editar antes de enviar)</label><textarea id="m-txt" data-l="'+l.id+'" rows="9" style="min-height:200px">'+esc(waText(l))+'</textarea></div>'+
+   '<a class="btn wa block" id="m-send" href="'+waLink(l)+'" target="_blank" rel="noopener" data-qsend="'+l.id+'">'+I.wa+'Abrir WhatsApp e enviar</a>'+
    '<div class="acts" style="margin-top:8px"><button class="btn ghost" data-close-btn>Parar</button><button class="btn ghost" data-act="qskip">Pular</button></div>'+
    '<p class="hint" style="font-size:12px;color:var(--muted);margin:10px 0 0">Depois de enviar no WhatsApp, volte para o CashDay que o próximo cliente já vai estar aqui.</p>');
 }
@@ -425,25 +425,35 @@ function dueCard(l){
     '<div class="row1"><button class="who" style="text-align:left" data-open="'+c.id+'"><b>'+esc(c.name)+scoreBadge(c.id,"sm")+'</b><span>Parcela '+(l.paid+1)+' de '+l.n+' · '+statusChip(l)+(chargedToday(l)?' <span class="chip ok">Cobrado hoje</span>':'')+'</span></button>'+
     '<div class="amt"><b class="num">'+brl(parcel(l)+lf)+'</b><span>'+(lf?"com multa":"a receber")+'</span></div></div>'+
     '<div class="break num"><span>Parcela <b>'+brl(parcel(l))+'</b></span><span>Só juros <b>'+brl(jurosParc(l))+'</b></span>'+(lf?'<span>Multa <b>'+brl(lf)+'</b></span>':'')+'</div>'+
-    '<div class="acts"><a class="btn wa" href="'+waLink(l)+'" target="_blank" rel="noopener" data-wa="'+l.id+'">'+I.wa+'Cobrar</a><button class="btn pri" data-pay="'+l.id+'">'+I.cash+'Recebi</button></div>'+
+    '<div class="acts"><button class="btn wa" data-charge="'+l.id+'">'+I.wa+'Cobrar</button><button class="btn pri" data-pay="'+l.id+'">'+I.cash+'Recebi</button></div>'+
   '</div>';
 }
 
 /* ---------- WhatsApp ---------- */
 function waNumber(p){let d=String(p||"").replace(/\D/g,"");if(d.length<=11)d="55"+d;return d}
+const MSG_DEFAULT={
+  late:"{nome}, sua {parcela}, no valor de {valor}, venceu em {vencimento} e está com {dias} de atraso.\n\nMulta até hoje: {multa}.\nTotal para pagar hoje: {total}.\n\nA multa aumenta {regra} até o pagamento. Regularize hoje. Se não tiver o valor completo, pague no mínimo os juros com a multa, {juros}, para não acumular mais.\n\nAguardo o comprovante ainda hoje.",
+  today:"{nome}, hoje vence sua {parcela}, no valor de {valor}.\n\nO pagamento deve ser feito até o fim do dia. A partir de amanhã entra multa de {regra}.\n\nSe não tiver o valor completo, pague no mínimo os juros de {juros} hoje.\n\nAguardo o comprovante.",
+  before:"{nome}, sua {parcela}, no valor de {valor}, vence em {vencimento}.\n\nDeixe o pagamento organizado. Depois do vencimento entra multa de {regra}."
+};
+const MSG_KEYS=[["{nome}","primeiro nome"],["{parcela}","ex.: parcela 2 de 4"],["{valor}","valor da parcela"],["{vencimento}","data"],["{dias}","dias de atraso"],["{multa}","multa até hoje"],["{total}","parcela + multa"],["{juros}","só juros (+ multa)"],["{regra}","ex.: R$ 50,00 por dia"]];
+const msgTpl=k=>((S.settings.msg||{})[k])||MSG_DEFAULT[k];
 function waText(l){
-  const c=client(l.clientId)||{name:""},first=c.name.replace(/\s*\(exemplo\)/,"").split(" ")[0];
-  const t=today(),dl=daysLate(l),lf=lateFee(l),rule=lateRule(l),k="parcela "+(l.paid+1)+" de "+l.n;
-  if(dl>0)return first+", sua "+k+", no valor de "+brl(parcel(l))+", venceu em "+fmtD(l.nextDue)+" e está com "+dl+(dl>1?" dias":" dia")+" de atraso.\n\n"+
-    "Multa até hoje: "+brl(lf)+".\nTotal para pagar hoje: "+brl(parcel(l)+lf)+".\n\n"+
-    "A multa aumenta "+rule+" até o pagamento. Regularize hoje. Se não tiver o valor completo, pague no mínimo os juros com a multa, "+brl(jurosParc(l)+lf)+", para não acumular mais.\n\nAguardo o comprovante ainda hoje.";
-  if(l.nextDue===t)return first+", hoje vence sua "+k+", no valor de "+brl(parcel(l))+".\n\n"+
-    "O pagamento deve ser feito até o fim do dia. A partir de amanhã entra multa de "+rule+".\n\n"+
-    "Se não tiver o valor completo, pague no mínimo os juros de "+brl(jurosParc(l))+" hoje.\n\nAguardo o comprovante.";
-  return first+", sua "+k+", no valor de "+brl(parcel(l))+", vence em "+fmtD(l.nextDue)+".\n\n"+
-    "Deixe o pagamento organizado. Depois do vencimento entra multa de "+rule+".";
+  const c=client(l.clientId)||{name:""},t=today(),dl=daysLate(l),lf=lateFee(l);
+  const kind=dl>0?"late":l.nextDue===t?"today":"before";
+  const v={nome:c.name.replace(/\s*\(exemplo\)/,"").split(" ")[0],parcela:"parcela "+(l.paid+1)+" de "+l.n,valor:brl(parcel(l)),vencimento:fmtD(l.nextDue),
+    dias:dl+(dl===1?" dia":" dias"),multa:brl(lf),total:brl(parcel(l)+lf),juros:brl(jurosParc(l)+lf),regra:lateRule(l)};
+  return msgTpl(kind).replace(/\{(\w+)\}/g,(m,k)=>k in v?v[k]:m);
 }
-const waLink=l=>"https://wa.me/"+waNumber((client(l.clientId)||{}).phone)+"?text="+encodeURIComponent(waText(l));
+const waHref=(l,text)=>"https://wa.me/"+waNumber((client(l.clientId)||{}).phone)+"?text="+encodeURIComponent(text);
+function chargeForm(lid){
+  const l=S.loans.find(x=>x.id===lid),c=client(l.clientId)||{name:"?"},txt=waText(l);
+  sheet('<h3 style="display:flex;align-items:center;gap:8px">Cobrar '+esc(c.name.replace(/\s*\(exemplo\)/,""))+scoreBadge(c.id,"sm")+'</h3>'+
+   '<div class="f"><label for="m-txt">Mensagem (pode editar antes de enviar)</label><textarea id="m-txt" data-l="'+lid+'" rows="10" style="min-height:220px">'+esc(txt)+'</textarea></div>'+
+   '<a class="btn wa block" id="m-send" href="'+waHref(l,txt)+'" target="_blank" rel="noopener" data-wa="'+lid+'">'+I.wa+'Enviar no WhatsApp</a>'+
+   '<div class="acts" style="margin-top:8px"><button class="btn ghost" data-close-btn>Cancelar</button><button class="btn ghost" data-act="msgReset">Voltar ao texto padrão</button></div>');
+}
+const waLink=l=>waHref(l,waText(l));
 
 /* ---------- clientes ---------- */
 function vClientes(){
@@ -499,7 +509,7 @@ function loanCard(l){
    '<span>Multa por atraso</span><b>'+lateRule(l)+'</b>'+
    '<span>Garantia</span><b style="overflow-wrap:anywhere">'+(l.guarantee?esc(l.guarantee):"Sem garantia")+'<br><button class="link" style="color:var(--accent)" data-act="editGar" data-l="'+l.id+'">'+(l.guarantee?"Alterar":"Marcar garantia")+'</button></b>'+
    (lf?'<span style="color:var(--late)">Multa até hoje</span><b style="color:var(--late)">'+brl(lf)+'</b>':'')+'</div>'+
-   (open?'<div class="acts"><a class="btn wa" href="'+waLink(l)+'" target="_blank" rel="noopener" data-wa="'+l.id+'">'+I.wa+'Cobrar</a><button class="btn pri" data-pay="'+l.id+'">'+I.cash+'Recebi</button></div>':'')+
+   (open?'<div class="acts"><button class="btn wa" data-charge="'+l.id+'">'+I.wa+'Cobrar</button><button class="btn pri" data-pay="'+l.id+'">'+I.cash+'Recebi</button></div>':'')+
    '<button class="link" data-act="delLoan" data-l="'+l.id+'" style="align-self:flex-start;color:var(--muted)">Excluir empréstimo</button></div>';
 }
 const KIND={parcela:"Parcela",juros:"Só juros",quitacao:"Quitação"};
@@ -522,6 +532,11 @@ function vAjustes(){
    '<div class="two"><div class="f"><label for="s-lt">Multa por dia</label><select id="s-lt"><option value="fixo"'+(s.lateType==="fixo"?" selected":"")+'>Valor fixo (R$)</option><option value="pct"'+(s.lateType==="pct"?" selected":"")+'>Porcentagem (%)</option></select></div>'+
    '<div class="f"><label for="s-lv">Valor</label><input id="s-lv" type="number" inputmode="decimal" step="0.01" value="'+s.lateValue+'"></div></div>'+
    '<button class="btn pri" data-act="saveSettings">Salvar padrão</button></div>'+
+  '<div class="card"><h3>Mensagens de cobrança</h3><span class="hint" style="font-size:13px;color:var(--muted)">O app troca as palavras entre chaves pelos dados de cada cliente: '+MSG_KEYS.map(k=>'<b style="color:var(--ink)">'+k[0]+'</b> '+k[1]).join(", ")+'.</span>'+
+   '<div class="f" style="margin:0"><label for="t-late">Quando está atrasado</label><textarea id="t-late" style="min-height:180px">'+esc(msgTpl("late"))+'</textarea></div>'+
+   '<div class="f" style="margin:0"><label for="t-today">Quando vence hoje</label><textarea id="t-today" style="min-height:150px">'+esc(msgTpl("today"))+'</textarea></div>'+
+   '<div class="f" style="margin:0"><label for="t-before">Antes do vencimento</label><textarea id="t-before" style="min-height:100px">'+esc(msgTpl("before"))+'</textarea></div>'+
+   '<div class="acts"><button class="btn pri" data-act="saveMsg">Salvar mensagens</button><button class="btn ghost" data-act="resetMsg">Voltar ao padrão</button></div></div>'+
   '<div class="card"><h3>Horário da cobrança</h3><div class="f" style="margin:0"><label for="s-time">Que horas você quer cobrar os clientes?</label><input id="s-time" type="time" value="'+esc(s.chargeTime||"09:00")+'"><span class="hint">A partir desse horário a tela Hoje mostra o botão "Cobrar todos".</span></div>'+
    '<button class="btn pri" data-act="saveTime">Salvar horário</button></div>'+
   '<div class="card"><h3>Envio automático pelo WhatsApp</h3>'+
@@ -689,8 +704,9 @@ document.addEventListener("click",e=>{
   if(b.hasAttribute("data-back")){go({tab:"clientes",q:view.q});return}
   if(b.dataset.open){closeSheet();go({tab:"clientes",client:b.dataset.open});return}
   if(b.dataset.pay){payForm(b.dataset.pay);return}
+  if(b.dataset.charge){chargeForm(b.dataset.charge);return}
   if(b.dataset.wa||b.dataset.qsend){const l=S.loans.find(x=>x.id===(b.dataset.wa||b.dataset.qsend));if(l){l.chargedOn=today();save()}
-    if(b.dataset.qsend){qi++;setTimeout(showQueue,400)}else setTimeout(render,400);return}
+    if(b.dataset.qsend){qi++;setTimeout(showQueue,400)}else setTimeout(()=>{closeSheet();render()},400);return}
   const seg=b.parentElement&&b.parentElement.classList.contains("seg")?b.parentElement:null;
   if(seg&&b.dataset.v){
     seg.dataset.v=b.dataset.v;seg.querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed",x===b));
@@ -705,6 +721,9 @@ document.addEventListener("click",e=>{
   else if(a==="newLoan")loanForm(b.dataset.c);
   else if(a==="undo")undo(b.dataset.p);
   else if(a==="queue")startQueue();
+  else if(a==="msgReset"){const m=$("#m-txt"),l=S.loans.find(x=>x.id===m.dataset.l);m.value=waText(l);$("#m-send").href=waHref(l,m.value)}
+  else if(a==="saveMsg"){S.settings.msg={late:$("#t-late").value,today:$("#t-today").value,before:$("#t-before").value};save();toast("Mensagens salvas")}
+  else if(a==="resetMsg"){S.settings.msg=null;save();render();toast("Mensagens voltaram ao padrão")}
   else if(a==="qskip"){qi++;showQueue()}
   else if(a==="editGar")garForm(b.dataset.l);
   else if(a==="delClient"){const c=client(b.dataset.c);confirmSheet("Excluir "+c.name+"?","Os empréstimos e o histórico de pagamentos dessa pessoa também serão apagados.","Excluir",()=>{
@@ -719,7 +738,7 @@ document.addEventListener("click",e=>{
     S.robot.phone=ph;try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}
     roboCall("/teste",{phone:ph}).then(()=>toast("Teste enviado. Olhe seu WhatsApp."),e=>toast("Teste falhou: "+e.message))}
   else if(a==="saveTime"){S.settings.chargeTime=$("#s-time").value||"09:00";save();render();toast("Horário salvo: "+S.settings.chargeTime)}
-  else if(a==="saveSettings"){S.settings={chargeTime:S.settings.chargeTime||"09:00",autoSend:!!S.settings.autoSend,pct:Number($("#s-pct").value)||0,n:Math.max(1,parseInt($("#s-n").value)||1),freq:$("#s-freq").value,lateType:$("#s-lt").value,lateValue:Number($("#s-lv").value)||0};save();toast("Padrão salvo")}
+  else if(a==="saveSettings"){S.settings={chargeTime:S.settings.chargeTime||"09:00",autoSend:!!S.settings.autoSend,msg:S.settings.msg||null,pct:Number($("#s-pct").value)||0,n:Math.max(1,parseInt($("#s-n").value)||1),freq:$("#s-freq").value,lateType:$("#s-lt").value,lateValue:Number($("#s-lv").value)||0};save();toast("Padrão salvo")}
   else if(a==="copyBackup"){const txt=JSON.stringify(S);
     const fallback=()=>{sheet('<h3>Seu backup</h3><div class="f"><label for="bk">Selecione tudo e copie</label><textarea id="bk" readonly>'+esc(txt)+'</textarea></div><button class="btn ghost block" data-close-btn>Fechar</button>');$("#bk").select()};
     try{navigator.clipboard.writeText(txt).then(()=>toast("Backup copiado. Cole no WhatsApp ou numa nota."),fallback)}catch(err){fallback()}}
@@ -729,6 +748,7 @@ document.addEventListener("click",e=>{
 });
 document.addEventListener("input",e=>{
   const id=e.target.id;
+  if(id==="m-txt"){const l=S.loans.find(x=>x.id===e.target.dataset.l);if(l)$("#m-send").href=waHref(l,e.target.value);return}
   if(id==="q"){view.q=e.target.value;const q=view.q.toLowerCase();
     const list=S.clients.filter(c=>!q||c.name.toLowerCase().includes(q)||String(c.phone).includes(q)||String(c.cpf||"").includes(q.replace(/\D/g,"")||"#")).sort((a,b)=>a.name.localeCompare(b.name,"pt-BR"));
     $("#clist").innerHTML=list.length?list.map(cliRow).join(""):'<div class="empty">Nenhum cliente com esse nome.</div>'}

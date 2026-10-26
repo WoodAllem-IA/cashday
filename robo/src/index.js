@@ -37,15 +37,20 @@ function lateFee(l, t) {
   return l.lateType === "pct" ? r2(parcel(l) * l.lateValue / 100 * d) : r2(l.lateValue * d);
 }
 const lateRule = l => l.lateType === "pct" ? String(l.lateValue).replace(".", ",") + "% da parcela por dia" : brl(l.lateValue) + " por dia";
-function message(l, c, t) {
-  const first = c.name.replace(/\s*\(exemplo\)/, "").split(" ")[0];
-  const dl = daysLate(l, t), lf = lateFee(l, t), rule = lateRule(l), k = `parcela ${l.paid + 1} de ${l.n}`;
-  if (dl > 0) return `${first}, sua ${k}, no valor de ${brl(parcel(l))}, venceu em ${fmtD(l.nextDue)} e está com ${dl}${dl > 1 ? " dias" : " dia"} de atraso.\n\n` +
-    `Multa até hoje: ${brl(lf)}.\nTotal para pagar hoje: ${brl(parcel(l) + lf)}.\n\n` +
-    `A multa aumenta ${rule} até o pagamento. Regularize hoje. Se não tiver o valor completo, pague no mínimo os juros com a multa, ${brl(jurosParc(l) + lf)}, para não acumular mais.\n\nAguardo o comprovante ainda hoje.`;
-  return `${first}, hoje vence sua ${k}, no valor de ${brl(parcel(l))}.\n\n` +
-    `O pagamento deve ser feito até o fim do dia. A partir de amanhã entra multa de ${rule}.\n\n` +
-    `Se não tiver o valor completo, pague no mínimo os juros de ${brl(jurosParc(l))} hoje.\n\nAguardo o comprovante.`;
+const MSG_DEFAULT = {
+  late: "{nome}, sua {parcela}, no valor de {valor}, venceu em {vencimento} e está com {dias} de atraso.\n\nMulta até hoje: {multa}.\nTotal para pagar hoje: {total}.\n\nA multa aumenta {regra} até o pagamento. Regularize hoje. Se não tiver o valor completo, pague no mínimo os juros com a multa, {juros}, para não acumular mais.\n\nAguardo o comprovante ainda hoje.",
+  today: "{nome}, hoje vence sua {parcela}, no valor de {valor}.\n\nO pagamento deve ser feito até o fim do dia. A partir de amanhã entra multa de {regra}.\n\nSe não tiver o valor completo, pague no mínimo os juros de {juros} hoje.\n\nAguardo o comprovante."
+};
+// Mesmo modelo de mensagem editado em Ajustes no app
+function message(l, c, t, settings) {
+  const dl = daysLate(l, t), lf = lateFee(l, t), kind = dl > 0 ? "late" : "today";
+  const tpl = (settings && settings.msg && settings.msg[kind]) || MSG_DEFAULT[kind];
+  const v = {
+    nome: c.name.replace(/\s*\(exemplo\)/, "").split(" ")[0], parcela: `parcela ${l.paid + 1} de ${l.n}`, valor: brl(parcel(l)),
+    vencimento: fmtD(l.nextDue), dias: dl + (dl === 1 ? " dia" : " dias"), multa: brl(lf), total: brl(parcel(l) + lf),
+    juros: brl(jurosParc(l) + lf), regra: lateRule(l)
+  };
+  return tpl.replace(/\{(\w+)\}/g, (m, k) => k in v ? v[k] : m);
 }
 function waNumber(p) { let d = String(p || "").replace(/\D/g, ""); if (d.length <= 11) d = "55" + d; return d; }
 
@@ -95,7 +100,7 @@ async function tick(env) {
   sent[l.id] = new Date().toISOString();
   await putJSON(env, sentKey, sent); // marca antes de enviar: nunca manda duas vezes
   try {
-    await sendWhats(env, c.phone, message(l, c, date));
+    await sendWhats(env, c.phone, message(l, c, date, state.settings));
     await addLog(env, { at: sent[l.id], date, loanId: l.id, name: c.name, ok: true });
     return "enviado para " + c.name;
   } catch (e) {
