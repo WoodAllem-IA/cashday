@@ -213,18 +213,18 @@ function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
 
 function seed(){
   const d=blank(),t=today();
-  const c=(name,phone)=>{const o={id:uid(),name,phone,notes:"",sample:true,createdAt:t};d.clients.push(o);return o};
-  const a=c("Carlos Mendes (exemplo)","11987654321"),b=c("Juliana Rocha (exemplo)","21998887766"),
-        e=c("Roberto Lima (exemplo)","31991234567"),f=c("Célia Souza (exemplo)","11955554444");
+  const c=(name,phone,cpf,address)=>{const o={id:uid(),name,phone,cpf,address,notes:"",sample:true,createdAt:t};d.clients.push(o);return o};
+  const a=c("Carlos Mendes (exemplo)","11987654321","52998224725","Rua das Flores, 120, Centro"),b=c("Juliana Rocha (exemplo)","21998887766","","Av. Brasil, 45, apto 302"),
+        e=c("Roberto Lima (exemplo)","31991234567","",""),f=c("Célia Souza (exemplo)","11955554444","","");
   const L=(cl,principal,pct,n,freq,startDue,paid,lateType,lateValue)=>{
-    const o={id:uid(),clientId:cl.id,principal,pct,n,freq,firstDue:startDue,nextDue:addPeriod(startDue,freq,paid),paid,lateType,lateValue,status:"aberto",sample:true,createdAt:addDays(startDue,-30)};
+    const o={id:uid(),clientId:cl.id,principal,pct,n,freq,guarantee:"",firstDue:startDue,nextDue:addPeriod(startDue,freq,paid),paid,lateType,lateValue,status:"aberto",sample:true,createdAt:addDays(startDue,-30)};
     d.loans.push(o);return o};
   const l1=L(a,1000,40,1,"mensal",addPeriod(addDays(t,-3),"mensal",-1),0,"fixo",50);
   l1.nextDue=addDays(t,-3); // pagou só juros uma vez, venceu de novo há 3 dias
   d.payments.push({id:uid(),loanId:l1.id,clientId:a.id,date:addPeriod(addDays(t,-3),"mensal",-1),kind:"juros",amount:400,lateDays:0,lateFee:0,inst:1,n:1,due:addPeriod(addDays(t,-3),"mensal",-1),sample:true});
   const l2=L(b,500,40,4,"semanal",addDays(t,-7),1,"fixo",50);
   d.payments.push({id:uid(),loanId:l2.id,clientId:b.id,date:addDays(t,-5),kind:"parcela",amount:275,lateDays:2,lateFee:100,inst:1,n:4,due:addDays(t,-7),sample:true});
-  L(e,2000,30,2,"mensal",addDays(t,4),0,"pct",2);
+  L(e,2000,30,2,"mensal",addDays(t,4),0,"pct",2).guarantee="Moto Honda CG 160 2019, placa ABC1D23 (documento comigo)";
   L(f,300,40,1,"quinzenal",addDays(t,10),0,"fixo",50);
   d.sample=true;
   return d;
@@ -341,10 +341,10 @@ const waLink=l=>"https://wa.me/"+waNumber((client(l.clientId)||{}).phone)+"?text
 /* ---------- clientes ---------- */
 function vClientes(){
   const q=(view.q||"").toLowerCase();
-  const list=S.clients.filter(c=>!q||c.name.toLowerCase().includes(q)||String(c.phone).includes(q)).sort((a,b)=>a.name.localeCompare(b.name,"pt-BR"));
+  const list=S.clients.filter(c=>!q||c.name.toLowerCase().includes(q)||String(c.phone).includes(q)||String(c.cpf||"").includes(q.replace(/\D/g,"")||"#")).sort((a,b)=>a.name.localeCompare(b.name,"pt-BR"));
   return header()+
    '<div class="sec" style="margin-top:4px"><h2>Clientes</h2><span>'+S.clients.length+' no total</span></div>'+
-   '<input class="search" id="q" type="search" placeholder="Buscar por nome ou telefone" autocomplete="off">'+
+   '<input class="search" id="q" type="search" placeholder="Buscar por nome, telefone ou CPF" autocomplete="off">'+
    '<button class="btn sec2 block" data-act="newClient" style="margin-bottom:12px">'+I.plus.replace('stroke-width="2.6"','stroke-width="2.6" width="18" height="18"')+'Novo cliente</button>'+
    '<div class="list" id="clist">'+(list.length?list.map(cliRow).join(""):'<div class="empty">Nenhum cliente'+(q?' com esse nome':'')+'. Toque em Novo cliente para começar.</div>')+'</div>';
 }
@@ -363,7 +363,8 @@ function vCliente(id){
   const ps=S.payments.filter(p=>p.clientId===id).sort((a,b)=>b.date.localeCompare(a.date));
   const paidTot=ps.reduce((s,p)=>s+p.amount,0),lateCount=ps.filter(p=>p.lateDays>0).length;
   return '<button class="back" data-back>'+I.back+'Clientes</button>'+
-   '<div class="hero"><h2>'+esc(c.name)+'</h2><div class="phone num">'+esc(fmtPhone(c.phone))+'</div>'+(c.notes?'<div class="note">'+esc(c.notes)+'</div>':'')+
+   '<div class="hero"><h2>'+esc(c.name)+'</h2><div class="grid2 num"><span>WhatsApp</span><b>'+esc(fmtPhone(c.phone))+'</b><span>CPF</span><b>'+esc(c.cpf?fmtCPF(c.cpf):"Não informado")+'</b>'+
+   '<span>Endereço</span><b style="overflow-wrap:anywhere">'+esc(c.address||"Não informado")+'</b></div>'+(c.notes?'<div class="note">'+esc(c.notes)+'</div>':'')+
    '<div class="acts"><button class="btn pri" data-act="newLoan" data-c="'+id+'">'+I.plus.replace('stroke-width="2.6"','stroke-width="2.6" width="18" height="18"')+'Emprestar</button><button class="btn ghost" data-act="editClient" data-c="'+id+'">Editar</button></div></div>'+
    sec("Empréstimos",ls.length?String(ls.length):"")+
    (ls.length?'<div class="list">'+ls.map(loanCard).join("")+'</div>':'<div class="empty">Nenhum empréstimo ainda.</div>')+
@@ -371,6 +372,9 @@ function vCliente(id){
    (ps.length?(lateCount?'<div class="note" style="margin-bottom:8px">Pagou com atraso '+lateCount+(lateCount>1?" vezes":" vez")+' de '+ps.length+'.</div>':'')+
      '<div class="hist">'+ps.map(histRow).join("")+'</div>':'<div class="empty">Nenhum pagamento registrado.</div>');
 }
+function fmtCPF(v){const d=String(v||"").replace(/\D/g,"");return d.length===11?d.slice(0,3)+"."+d.slice(3,6)+"."+d.slice(6,9)+"-"+d.slice(9):v||""}
+function cpfOk(v){const d=String(v).replace(/\D/g,"");if(d.length!==11||/^(\d)\1+$/.test(d))return false;
+  for(let k=9;k<11;k++){let s=0;for(let i=0;i<k;i++)s+=Number(d[i])*(k+1-i);if(((s*10)%11)%10!==Number(d[k]))return false}return true}
 function fmtPhone(p){const d=String(p||"").replace(/\D/g,"");if(d.length===11)return"("+d.slice(0,2)+") "+d.slice(2,7)+"-"+d.slice(7);if(d.length===10)return"("+d.slice(0,2)+") "+d.slice(2,6)+"-"+d.slice(6);return p||"Sem telefone"}
 function loanCard(l){
   const open=l.status==="aberto",lf=open?lateFee(l):0;
@@ -382,6 +386,7 @@ function loanCard(l){
    '<span>Só juros</span><b>'+brl(jurosParc(l))+'</b>'+
    (open?'<span>Próximo vencimento</span><b>'+fmtD(l.nextDue)+'</b><span>Falta pagar</span><b>'+brl(remaining(l))+'</b>':'')+
    '<span>Multa por atraso</span><b>'+lateRule(l)+'</b>'+
+   '<span>Garantia</span><b style="overflow-wrap:anywhere">'+(l.guarantee?esc(l.guarantee):"Sem garantia")+'</b>'+
    (lf?'<span style="color:var(--late)">Multa até hoje</span><b style="color:var(--late)">'+brl(lf)+'</b>':'')+'</div>'+
    (open?'<div class="acts"><a class="btn wa" href="'+waLink(l)+'" target="_blank" rel="noopener">'+I.wa+'Cobrar</a><button class="btn pri" data-pay="'+l.id+'">'+I.cash+'Recebi</button></div>':'')+
    '<button class="link" data-act="delLoan" data-l="'+l.id+'" style="align-self:flex-start;color:var(--muted)">Excluir empréstimo</button></div>';
@@ -426,9 +431,11 @@ function toast(m){clearTimeout(toastT);let t=$("#toast");if(!t){t=document.creat
 function clientForm(c){
   c=c||{};
   sheet('<h3>'+(c.id?"Editar cliente":"Novo cliente")+'</h3><form id="fc">'+
-   '<div class="f"><label for="c-name">Nome</label><input id="c-name" required value="'+esc(c.name)+'" autocomplete="off"></div>'+
+   '<div class="f"><label for="c-name">Nome completo</label><input id="c-name" required value="'+esc(c.name)+'" autocomplete="off"></div>'+
    '<div class="f"><label for="c-phone">WhatsApp (com DDD)</label><input id="c-phone" type="tel" inputmode="tel" placeholder="(11) 98765-4321" value="'+esc(c.phone?fmtPhone(c.phone):"")+'"></div>'+
-   '<div class="f"><label for="c-notes">Observações</label><textarea id="c-notes" placeholder="Endereço, indicação, chave Pix...">'+esc(c.notes)+'</textarea></div>'+
+   '<div class="f"><label for="c-cpf">CPF</label><input id="c-cpf" inputmode="numeric" placeholder="000.000.000-00" maxlength="14" value="'+esc(fmtCPF(c.cpf))+'" autocomplete="off"></div>'+
+   '<div class="f"><label for="c-addr">Endereço</label><input id="c-addr" placeholder="Rua, número, bairro, cidade" value="'+esc(c.address)+'" autocomplete="off"></div>'+
+   '<div class="f"><label for="c-notes">Observações</label><textarea id="c-notes" placeholder="Indicação, chave Pix, referência...">'+esc(c.notes)+'</textarea></div>'+
    '<div class="acts">'+(c.id?'<button type="button" class="btn danger" data-act="delClient" data-c="'+c.id+'">Excluir</button>':'<button type="button" class="btn ghost" data-close-btn>Cancelar</button>')+
    '<button class="btn pri" type="submit">Salvar</button></div>'+(c.id?'<input type="hidden" id="c-id" value="'+c.id+'">':'')+'</form>');
 }
@@ -450,13 +457,16 @@ function loanForm(cid){
    '<div class="f"><label for="l-due">1º vencimento</label><input id="l-due" type="date" required value="'+addPeriod(t,s.freq)+'"></div></div>'+
    '<div class="f"><label>Multa por dia de atraso</label><div class="seg" id="l-lt" data-v="'+s.lateType+'"><button type="button" data-v="fixo" aria-pressed="'+(s.lateType==="fixo")+'">Valor fixo R$</button><button type="button" data-v="pct" aria-pressed="'+(s.lateType==="pct")+'">Porcentagem %</button></div></div>'+
    '<div class="f"><label for="l-lv" id="l-lvl">'+(s.lateType==="pct"?"% da parcela por dia":"R$ por dia")+'</label><input id="l-lv" type="number" inputmode="decimal" step="0.01" min="0" value="'+s.lateValue+'"></div>'+
+   '<div class="f"><label>Tem garantia?</label><div class="seg" id="l-g" data-v="nao"><button type="button" data-v="nao" aria-pressed="true">Não</button><button type="button" data-v="sim" aria-pressed="false">Sim</button></div></div>'+
+   '<div class="f" id="l-gbox" hidden><label for="l-gar">Qual é a garantia?</label><textarea id="l-gar" placeholder="Ex.: moto Honda CG 2019, placa ABC1D23, documento comigo"></textarea></div>'+
    '<div class="calc num" id="l-calc"></div>'+
    '<div class="acts"><button type="button" class="btn ghost" data-close-btn>Cancelar</button><button class="btn pri" type="submit">Salvar</button></div></form>');
   loanCalc();
 }
 function loanVals(){
   return{principal:r2($("#l-val").value),pct:Number($("#l-pct").value)||0,n:Math.max(1,parseInt($("#l-n").value)||1),freq:$("#l-freq").value,
-    firstDue:$("#l-due").value,lateType:$("#l-lt").dataset.v,lateValue:Number($("#l-lv").value)||0};
+    firstDue:$("#l-due").value,lateType:$("#l-lt").dataset.v,lateValue:Number($("#l-lv").value)||0,
+    guarantee:$("#l-g").dataset.v==="sim"?$("#l-gar").value.trim():""};
 }
 function loanCalc(){
   const v=loanVals(),el=$("#l-calc");if(!el)return;
@@ -501,12 +511,15 @@ function payCalc(setAmt){
 function submitClient(){
   const name=$("#c-name").value.trim();if(!name){toast("Coloque o nome");return}
   const phone=$("#c-phone").value.replace(/\D/g,""),notes=$("#c-notes").value.trim(),idEl=$("#c-id");
-  if(idEl){const c=client(idEl.value);Object.assign(c,{name,phone,notes});save();closeSheet();render();toast("Cliente atualizado");return}
-  const c={id:uid(),name,phone,notes,createdAt:today()};S.clients.push(c);save();
+  const cpf=$("#c-cpf").value.replace(/\D/g,""),address=$("#c-addr").value.trim();
+  if(cpf&&!cpfOk(cpf)){toast("CPF inválido. Confira os números.");$("#c-cpf").focus();return}
+  if(idEl){const c=client(idEl.value);Object.assign(c,{name,phone,cpf,address,notes});save();closeSheet();render();toast("Cliente atualizado");return}
+  const c={id:uid(),name,phone,cpf,address,notes,createdAt:today()};S.clients.push(c);save();
   loanForm(c.id);view={tab:"clientes",client:c.id};render();toast("Cliente salvo. Agora o empréstimo.");
 }
 function submitLoan(){
   const v=loanVals();if(!v.principal||!v.firstDue){toast("Preencha valor e vencimento");return}
+  if($("#l-g").dataset.v==="sim"&&!v.guarantee){toast("Escreva qual é a garantia");$("#l-gar").focus();return}
   const l=Object.assign({id:uid(),clientId:$("#l-c").value,paid:0,nextDue:v.firstDue,status:"aberto",createdAt:today()},v);
   S.loans.push(l);save();closeSheet();view={tab:"clientes",client:l.clientId};render();toast("Empréstimo salvo");
 }
@@ -547,6 +560,7 @@ document.addEventListener("click",e=>{
     seg.dataset.v=b.dataset.v;seg.querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed",x===b));
     if(seg.id==="l-lt"){$("#l-lvl").textContent=b.dataset.v==="pct"?"% da parcela por dia":"R$ por dia";$("#l-lv").value=b.dataset.v==="pct"?"2":"50";loanCalc()}
     if(seg.id==="p-kind"){payKind=b.dataset.v;payCalc(true)}
+    if(seg.id==="l-g"){$("#l-gbox").hidden=b.dataset.v!=="sim";if(b.dataset.v==="sim")$("#l-gar").focus()}
     return;
   }
   const a=b.dataset.act;if(!a)return;
@@ -572,8 +586,9 @@ document.addEventListener("click",e=>{
 document.addEventListener("input",e=>{
   const id=e.target.id;
   if(id==="q"){view.q=e.target.value;const q=view.q.toLowerCase();
-    const list=S.clients.filter(c=>!q||c.name.toLowerCase().includes(q)||String(c.phone).includes(q)).sort((a,b)=>a.name.localeCompare(b.name,"pt-BR"));
+    const list=S.clients.filter(c=>!q||c.name.toLowerCase().includes(q)||String(c.phone).includes(q)||String(c.cpf||"").includes(q.replace(/\D/g,"")||"#")).sort((a,b)=>a.name.localeCompare(b.name,"pt-BR"));
     $("#clist").innerHTML=list.length?list.map(cliRow).join(""):'<div class="empty">Nenhum cliente com esse nome.</div>'}
+  if(id==="c-cpf"){const d=e.target.value.replace(/\D/g,"").slice(0,11);e.target.value=d.length>9?d.slice(0,3)+"."+d.slice(3,6)+"."+d.slice(6,9)+"-"+d.slice(9):d.length>6?d.slice(0,3)+"."+d.slice(3,6)+"."+d.slice(6):d.length>3?d.slice(0,3)+"."+d.slice(3):d}
   if(id&&id.startsWith("l-"))loanCalc();
   if(id==="p-date")payCalc(true);
 });
