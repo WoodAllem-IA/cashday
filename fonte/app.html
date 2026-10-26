@@ -366,7 +366,7 @@ function showQueue(){
   sheet('<div class="qhead"><span>Cobrança '+(qi+1)+' de '+Q.length+'</span><div class="bar"><i style="width:'+(qi/Q.length*100)+'%"></i></div></div>'+
    '<h3 style="display:flex;align-items:center;gap:8px">'+esc(c.name)+scoreBadge(c.id,"sm")+'</h3>'+
    '<div class="calc num'+(lf?" warn":"")+'"><span>'+(lf?"Total com multa":"Valor da parcela")+'</span><b class="tot">'+brl(parcel(l)+lf)+'</b><span>Situação</span><b>'+statusChip(l)+'</b></div>'+
-   '<div class="f"><label>Mensagem que vai ser enviada</label><div class="note">'+esc(waText(l))+'</div></div>'+
+   '<div class="f"><label>Mensagem que vai ser enviada</label><div class="note" style="white-space:pre-line">'+esc(waText(l))+'</div></div>'+
    '<a class="btn wa block" href="'+waLink(l)+'" target="_blank" rel="noopener" data-qsend="'+l.id+'">'+I.wa+'Abrir WhatsApp e enviar</a>'+
    '<div class="acts" style="margin-top:8px"><button class="btn ghost" data-close-btn>Parar</button><button class="btn ghost" data-act="qskip">Pular</button></div>'+
    '<p class="hint" style="font-size:12px;color:var(--muted);margin:10px 0 0">Depois de enviar no WhatsApp, volte para o CashDay que o próximo cliente já vai estar aqui.</p>');
@@ -417,13 +417,15 @@ function dueCard(l){
 function waNumber(p){let d=String(p||"").replace(/\D/g,"");if(d.length<=11)d="55"+d;return d}
 function waText(l){
   const c=client(l.clientId)||{name:""},first=c.name.replace(/\s*\(exemplo\)/,"").split(" ")[0];
-  const t=today(),dl=daysLate(l),lf=lateFee(l);
-  let m="Olá "+first+", tudo bem? ";
-  if(dl>0)m+="Sua parcela "+(l.paid+1)+" de "+l.n+", no valor de "+brl(parcel(l))+", venceu em "+fmtD(l.nextDue)+" e está com "+dl+(dl>1?" dias":" dia")+" de atraso. Com a multa de "+brl(lf)+", o total fica "+brl(parcel(l)+lf)+".";
-  else if(l.nextDue===t)m+="Passando para lembrar que hoje vence sua parcela "+(l.paid+1)+" de "+l.n+", no valor de "+brl(parcel(l))+".";
-  else m+="Passando para lembrar que sua parcela "+(l.paid+1)+" de "+l.n+", no valor de "+brl(parcel(l))+", vence em "+fmtD(l.nextDue)+".";
-  m+=" Se preferir, pode pagar só os juros de "+brl(jurosParc(l)+lf)+(lf?" (já com a multa)":"")+" e a parcela passa para o próximo vencimento. Obrigado!";
-  return m;
+  const t=today(),dl=daysLate(l),lf=lateFee(l),rule=lateRule(l),k="parcela "+(l.paid+1)+" de "+l.n;
+  if(dl>0)return first+", sua "+k+", no valor de "+brl(parcel(l))+", venceu em "+fmtD(l.nextDue)+" e está com "+dl+(dl>1?" dias":" dia")+" de atraso.\n\n"+
+    "Multa até hoje: "+brl(lf)+".\nTotal para pagar hoje: "+brl(parcel(l)+lf)+".\n\n"+
+    "A multa aumenta "+rule+" até o pagamento. Regularize hoje. Se não tiver o valor completo, pague no mínimo os juros com a multa, "+brl(jurosParc(l)+lf)+", para não acumular mais.\n\nAguardo o comprovante ainda hoje.";
+  if(l.nextDue===t)return first+", hoje vence sua "+k+", no valor de "+brl(parcel(l))+".\n\n"+
+    "O pagamento deve ser feito até o fim do dia. A partir de amanhã entra multa de "+rule+".\n\n"+
+    "Se não tiver o valor completo, pague no mínimo os juros de "+brl(jurosParc(l))+" hoje.\n\nAguardo o comprovante.";
+  return first+", sua "+k+", no valor de "+brl(parcel(l))+", vence em "+fmtD(l.nextDue)+".\n\n"+
+    "Deixe o pagamento organizado. Depois do vencimento entra multa de "+rule+".";
 }
 const waLink=l=>"https://wa.me/"+waNumber((client(l.clientId)||{}).phone)+"?text="+encodeURIComponent(waText(l));
 

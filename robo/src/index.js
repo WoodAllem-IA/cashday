@@ -36,14 +36,16 @@ function lateFee(l, t) {
   const d = daysLate(l, t); if (!d) return 0;
   return l.lateType === "pct" ? r2(parcel(l) * l.lateValue / 100 * d) : r2(l.lateValue * d);
 }
+const lateRule = l => l.lateType === "pct" ? String(l.lateValue).replace(".", ",") + "% da parcela por dia" : brl(l.lateValue) + " por dia";
 function message(l, c, t) {
   const first = c.name.replace(/\s*\(exemplo\)/, "").split(" ")[0];
-  const dl = daysLate(l, t), lf = lateFee(l, t);
-  let m = `Olá ${first}, tudo bem? `;
-  if (dl > 0) m += `Sua parcela ${l.paid + 1} de ${l.n}, no valor de ${brl(parcel(l))}, venceu em ${fmtD(l.nextDue)} e está com ${dl}${dl > 1 ? " dias" : " dia"} de atraso. Com a multa de ${brl(lf)}, o total fica ${brl(parcel(l) + lf)}.`;
-  else m += `Passando para lembrar que hoje vence sua parcela ${l.paid + 1} de ${l.n}, no valor de ${brl(parcel(l))}.`;
-  m += ` Se preferir, pode pagar só os juros de ${brl(jurosParc(l) + lf)}${lf ? " (já com a multa)" : ""} e a parcela passa para o próximo vencimento. Obrigado!`;
-  return m;
+  const dl = daysLate(l, t), lf = lateFee(l, t), rule = lateRule(l), k = `parcela ${l.paid + 1} de ${l.n}`;
+  if (dl > 0) return `${first}, sua ${k}, no valor de ${brl(parcel(l))}, venceu em ${fmtD(l.nextDue)} e está com ${dl}${dl > 1 ? " dias" : " dia"} de atraso.\n\n` +
+    `Multa até hoje: ${brl(lf)}.\nTotal para pagar hoje: ${brl(parcel(l) + lf)}.\n\n` +
+    `A multa aumenta ${rule} até o pagamento. Regularize hoje. Se não tiver o valor completo, pague no mínimo os juros com a multa, ${brl(jurosParc(l) + lf)}, para não acumular mais.\n\nAguardo o comprovante ainda hoje.`;
+  return `${first}, hoje vence sua ${k}, no valor de ${brl(parcel(l))}.\n\n` +
+    `O pagamento deve ser feito até o fim do dia. A partir de amanhã entra multa de ${rule}.\n\n` +
+    `Se não tiver o valor completo, pague no mínimo os juros de ${brl(jurosParc(l))} hoje.\n\nAguardo o comprovante.`;
 }
 function waNumber(p) { let d = String(p || "").replace(/\D/g, ""); if (d.length <= 11) d = "55" + d; return d; }
 
