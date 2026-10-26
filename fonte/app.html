@@ -8,7 +8,7 @@
   --bg:#EEF2F0; --surface:#FFFFFF; --ink:#13241D; --muted:#5D6F67; --line:#D5DED9;
   --accent:#0E7A55; --accent-ink:#FFFFFF; --accent-soft:#DDEFE6;
   --late:#B83A26; --late-soft:#F8E2DC; --today:#9A6200; --today-soft:#FBEED3; --ok:#0E7A55;
-  --shadow:0 1px 2px rgba(19,36,29,.06),0 4px 14px rgba(19,36,29,.06);
+  --shadow:0 1px 2px rgba(19,36,29,.06),0 4px 14px rgba(19,36,29,.06); --on-tone:#FFFFFF;
   --display:"Bricolage Grotesque",ui-rounded,system-ui,sans-serif;
   --body:"Figtree",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
   --r:14px;
@@ -17,12 +17,12 @@
   --bg:#0E1613; --surface:#17221D; --ink:#E6EFEA; --muted:#93A69D; --line:#2A3832;
   --accent:#3BBF8A; --accent-ink:#06130D; --accent-soft:#183428;
   --late:#F07A63; --late-soft:#3A1E18; --today:#E8B04C; --today-soft:#352914; --ok:#3BBF8A;
-  --shadow:0 1px 2px rgba(0,0,0,.3); color-scheme:dark}}
+  --shadow:0 1px 2px rgba(0,0,0,.3); --on-tone:#0E1613; color-scheme:dark}}
 :root[data-theme="dark"]{
   --bg:#0E1613; --surface:#17221D; --ink:#E6EFEA; --muted:#93A69D; --line:#2A3832;
   --accent:#3BBF8A; --accent-ink:#06130D; --accent-soft:#183428;
   --late:#F07A63; --late-soft:#3A1E18; --today:#E8B04C; --today-soft:#352914; --ok:#3BBF8A;
-  --shadow:0 1px 2px rgba(0,0,0,.3); color-scheme:dark}
+  --shadow:0 1px 2px rgba(0,0,0,.3); --on-tone:#0E1613; color-scheme:dark}
 *{box-sizing:border-box}
 html,body{background:var(--bg)}
 body{color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.45;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
@@ -69,6 +69,15 @@ a{color:var(--accent)}
 .chip.today{background:var(--today-soft);color:var(--today)}
 .chip.ok{background:var(--accent-soft);color:var(--ok)}
 .chip.soon{background:var(--bg);color:var(--muted)}
+.score{display:inline-grid;place-items:center;min-width:26px;height:26px;padding:0 6px;border-radius:99px;font-weight:800;font-size:14px;font-variant-numeric:tabular-nums;color:var(--on-tone);vertical-align:middle}
+.score.good{background:var(--ok)}.score.mid{background:var(--today)}.score.bad{background:var(--late)}
+.score.big{min-width:40px;height:40px;font-size:19px;font-family:var(--display);flex-shrink:0}
+.score.sm{min-width:24px;height:24px;font-size:13px;margin-left:6px;font-family:var(--body)}
+.sbar{display:flex;align-items:center;gap:12px}
+.sbar .meter{flex:1;min-width:0}
+.sbar .meter div{height:8px;border-radius:99px;background:var(--bg);overflow:hidden}
+.sbar .meter i{display:block;height:100%;border-radius:99px}
+.sbar .meter small{display:block;font-size:13px;color:var(--muted);margin-top:4px}
 .break{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:13px;color:var(--muted)}
 .break b{color:var(--ink);font-weight:600}
 .acts{display:grid;grid-template-columns:1fr 1fr;gap:8px}
@@ -233,6 +242,21 @@ function lateFee(l,ref){
 const lateRule=l=>l.lateType==="pct"?(String(l.lateValue).replace(".",",")+"% da parcela por dia"):(brl(l.lateValue)+" por dia");
 const openLoans=()=>S.loans.filter(l=>l.status==="aberto");
 
+/* ---------- score do cliente (0 a 10) ----------
+   Todo mundo começa com 10. Cada atraso tira pontos conforme o tamanho:
+   1 a 7 dias tira 1, 8 a 30 dias tira 2, mais de 30 dias tira 3.
+   Conta os pagamentos feitos com atraso e as parcelas que estão atrasadas agora. */
+const latePenalty=d=>d<=0?0:d<=7?1:d<=30?2:3;
+function scoreInfo(cid){
+  const t=today(),ev=[];
+  S.payments.forEach(p=>{if(p.clientId===cid&&p.lateDays>0)ev.push(p.lateDays)});
+  S.loans.forEach(l=>{if(l.clientId===cid&&l.status==="aberto"&&l.nextDue<t)ev.push(daysLate(l))});
+  const score=Math.max(0,10-ev.reduce((s,d)=>s+latePenalty(d),0));
+  return{score,count:ev.length,tone:score>=8?"good":score>=5?"mid":"bad"};
+}
+const SCORE_LABEL={good:"Bom pagador",mid:"Atenção",bad:"Arriscado"};
+const scoreBadge=(cid,cls)=>{const x=scoreInfo(cid);return '<span class="score '+x.tone+(cls?" "+cls:"")+'" title="Score '+x.score+' de 10">'+x.score+'</span>'};
+
 /* ---------- ícones ---------- */
 const I={
   today:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="3"/><path d="M16 2v4M8 2v4M3 10h18"/><circle cx="12" cy="15.5" r="1.6" fill="currentColor"/></svg>',
@@ -306,7 +330,7 @@ function statusChip(l){
 function dueCard(l){
   const c=client(l.clientId)||{name:"?"},t=today(),lf=lateFee(l),cls=l.nextDue<t?"late":l.nextDue===t?"today":"";
   return '<div class="due '+cls+'">'+
-    '<div class="row1"><button class="who" style="text-align:left" data-open="'+c.id+'"><b>'+esc(c.name)+'</b><span>Parcela '+(l.paid+1)+' de '+l.n+' · '+statusChip(l)+'</span></button>'+
+    '<div class="row1"><button class="who" style="text-align:left" data-open="'+c.id+'"><b>'+esc(c.name)+scoreBadge(c.id,"sm")+'</b><span>Parcela '+(l.paid+1)+' de '+l.n+' · '+statusChip(l)+'</span></button>'+
     '<div class="amt"><b class="num">'+brl(parcel(l)+lf)+'</b><span>'+(lf?"com multa":"a receber")+'</span></div></div>'+
     '<div class="break num"><span>Parcela <b>'+brl(parcel(l))+'</b></span><span>Só juros <b>'+brl(jurosParc(l))+'</b></span>'+(lf?'<span>Multa <b>'+brl(lf)+'</b></span>':'')+'</div>'+
     '<div class="acts"><a class="btn wa" href="'+waLink(l)+'" target="_blank" rel="noopener">'+I.wa+'Cobrar</a><button class="btn pri" data-pay="'+l.id+'">'+I.cash+'Recebi</button></div>'+
@@ -342,8 +366,7 @@ function cliRow(c){
   const t=today(),late=ls.some(l=>l.nextDue<t),now=ls.some(l=>l.nextDue===t);
   const owed=ls.reduce((s,l)=>s+remaining(l),0);
   const chip=late?'<span class="chip late">Atrasado</span>':now?'<span class="chip today">Hoje</span>':ls.length?'<span class="chip soon">Em dia</span>':'<span class="chip ok">Sem dívida</span>';
-  const ini=c.name.replace(/\s*\(exemplo\)/,"").split(" ").filter(Boolean).slice(0,2).map(w=>w[0]).join("").toUpperCase();
-  return '<button class="cli" data-open="'+c.id+'"><div class="av">'+esc(ini)+'</div><div class="info"><b>'+esc(c.name)+'</b><span class="num">'+(ls.length?"Deve "+brl(owed):"Nada em aberto")+'</span></div>'+chip+I.chev+'</button>';
+  return '<button class="cli" data-open="'+c.id+'">'+scoreBadge(c.id,"big")+'<div class="info"><b>'+esc(c.name)+'</b><span class="num">'+(ls.length?"Deve "+brl(owed):"Nada em aberto")+'</span></div>'+chip+I.chev+'</button>';
 }
 
 function vCliente(id){
@@ -352,7 +375,7 @@ function vCliente(id){
   const ps=S.payments.filter(p=>p.clientId===id).sort((a,b)=>b.date.localeCompare(a.date));
   const paidTot=ps.reduce((s,p)=>s+p.amount,0),lateCount=ps.filter(p=>p.lateDays>0).length;
   return '<button class="back" data-back>'+I.back+'Clientes</button>'+
-   '<div class="hero"><h2>'+esc(c.name)+'</h2><div class="grid2 num"><span>WhatsApp</span><b>'+esc(fmtPhone(c.phone))+'</b><span>CPF</span><b>'+esc(c.cpf?fmtCPF(c.cpf):"Não informado")+'</b>'+
+   '<div class="hero"><h2>'+esc(c.name)+'</h2>'+scoreBar(id)+'<div class="grid2 num"><span>WhatsApp</span><b>'+esc(fmtPhone(c.phone))+'</b><span>CPF</span><b>'+esc(c.cpf?fmtCPF(c.cpf):"Não informado")+'</b>'+
    '<span>Endereço</span><b style="overflow-wrap:anywhere">'+esc(c.address||"Não informado")+'</b></div>'+(c.notes?'<div class="note">'+esc(c.notes)+'</div>':'')+
    '<div class="acts"><button class="btn pri" data-act="newLoan" data-c="'+id+'">'+I.plus.replace('stroke-width="2.6"','stroke-width="2.6" width="18" height="18"')+'Emprestar</button><button class="btn ghost" data-act="editClient" data-c="'+id+'">Editar</button></div></div>'+
    sec("Empréstimos",ls.length?String(ls.length):"")+
@@ -360,6 +383,11 @@ function vCliente(id){
    sec("Histórico de pagamentos",ps.length?"Total pago "+brl(paidTot):"")+
    (ps.length?(lateCount?'<div class="note" style="margin-bottom:8px">Pagou com atraso '+lateCount+(lateCount>1?" vezes":" vez")+' de '+ps.length+'.</div>':'')+
      '<div class="hist">'+ps.map(histRow).join("")+'</div>':'<div class="empty">Nenhum pagamento registrado.</div>');
+}
+function scoreBar(cid){
+  const x=scoreInfo(cid),col=x.tone==="good"?"var(--ok)":x.tone==="mid"?"var(--today)":"var(--late)";
+  return '<div class="sbar">'+scoreBadge(cid,"big")+'<div class="meter"><div><i style="width:'+(x.score*10)+'%;background:'+col+'"></i></div>'+
+   '<small>Score '+x.score+' de 10 · '+SCORE_LABEL[x.tone]+' · '+(x.count?x.count+(x.count>1?" atrasos":" atraso"):"nunca atrasou")+'</small></div></div>';
 }
 function fmtCPF(v){const d=String(v||"").replace(/\D/g,"");return d.length===11?d.slice(0,3)+"."+d.slice(3,6)+"."+d.slice(6,9)+"-"+d.slice(9):v||""}
 function cpfOk(v){const d=String(v).replace(/\D/g,"");if(d.length!==11||/^(\d)\1+$/.test(d))return false;
