@@ -137,6 +137,11 @@ a{color:var(--accent)}
 .seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;background:var(--bg);border-radius:12px;padding:3px;gap:3px}
 .seg button{min-height:40px;border-radius:9px;font-weight:600;font-size:14px;color:var(--muted)}
 .seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
+fieldset.radio{border:0;padding:0;margin:0 0 12px;min-width:0}
+fieldset.radio legend{font-size:13px;font-weight:600;color:var(--muted);padding:0;margin-bottom:6px}
+.opt{display:flex;align-items:center;gap:12px;min-height:48px;padding:0 14px;border:1px solid var(--line);border-radius:12px;background:var(--bg);margin-bottom:8px;font-weight:600;cursor:pointer}
+.opt input{width:22px;height:22px;margin:0;accent-color:var(--accent);flex-shrink:0}
+.opt:has(input:checked){border-color:var(--accent);background:var(--accent-soft)}
 .calc{background:var(--accent-soft);border-radius:12px;padding:12px 14px;margin-bottom:14px;display:grid;grid-template-columns:1fr auto;gap:4px 12px;font-size:14px}
 .calc span{color:var(--muted)}
 .calc b{text-align:right}
@@ -370,7 +375,7 @@ function loanCard(l){
    '<span>Só juros</span><b>'+brl(jurosParc(l))+'</b>'+
    (open?'<span>Próximo vencimento</span><b>'+fmtD(l.nextDue)+'</b><span>Falta pagar</span><b>'+brl(remaining(l))+'</b>':'')+
    '<span>Multa por atraso</span><b>'+lateRule(l)+'</b>'+
-   '<span>Garantia</span><b style="overflow-wrap:anywhere">'+(l.guarantee?esc(l.guarantee):"Sem garantia")+'</b>'+
+   '<span>Garantia</span><b style="overflow-wrap:anywhere">'+(l.guarantee?esc(l.guarantee):"Sem garantia")+'<br><button class="link" style="color:var(--accent)" data-act="editGar" data-l="'+l.id+'">'+(l.guarantee?"Alterar":"Marcar garantia")+'</button></b>'+
    (lf?'<span style="color:var(--late)">Multa até hoje</span><b style="color:var(--late)">'+brl(lf)+'</b>':'')+'</div>'+
    (open?'<div class="acts"><a class="btn wa" href="'+waLink(l)+'" target="_blank" rel="noopener">'+I.wa+'Cobrar</a><button class="btn pri" data-pay="'+l.id+'">'+I.cash+'Recebi</button></div>':'')+
    '<button class="link" data-act="delLoan" data-l="'+l.id+'" style="align-self:flex-start;color:var(--muted)">Excluir empréstimo</button></div>';
@@ -441,16 +446,29 @@ function loanForm(cid){
    '<div class="f"><label for="l-due">1º vencimento</label><input id="l-due" type="date" required value="'+addPeriod(t,s.freq)+'"></div></div>'+
    '<div class="f"><label>Multa por dia de atraso</label><div class="seg" id="l-lt" data-v="'+s.lateType+'"><button type="button" data-v="fixo" aria-pressed="'+(s.lateType==="fixo")+'">Valor fixo R$</button><button type="button" data-v="pct" aria-pressed="'+(s.lateType==="pct")+'">Porcentagem %</button></div></div>'+
    '<div class="f"><label for="l-lv" id="l-lvl">'+(s.lateType==="pct"?"% da parcela por dia":"R$ por dia")+'</label><input id="l-lv" type="number" inputmode="decimal" step="0.01" min="0" value="'+s.lateValue+'"></div>'+
-   '<div class="f"><label>Tem garantia?</label><div class="seg" id="l-g" data-v="nao"><button type="button" data-v="nao" aria-pressed="true">Não</button><button type="button" data-v="sim" aria-pressed="false">Sim</button></div></div>'+
-   '<div class="f" id="l-gbox" hidden><label for="l-gar">Qual é a garantia?</label><textarea id="l-gar" placeholder="Ex.: moto Honda CG 2019, placa ABC1D23, documento comigo"></textarea></div>'+
+   garBlock("l","")+
    '<div class="calc num" id="l-calc"></div>'+
    '<div class="acts"><button type="button" class="btn ghost" data-close-btn>Cancelar</button><button class="btn pri" type="submit">Salvar</button></div></form>');
   loanCalc();
 }
+function garBlock(px,val){
+  const has=!!val;
+  return '<fieldset class="f radio"><legend>Este empréstimo tem garantia?</legend>'+
+   '<label class="opt"><input type="radio" name="'+px+'-g" value="nao"'+(has?'':' checked')+'><span>Não, sem garantia</span></label>'+
+   '<label class="opt"><input type="radio" name="'+px+'-g" value="sim"'+(has?' checked':'')+'><span>Sim, tem garantia</span></label></fieldset>'+
+   '<div class="f" id="'+px+'-gbox"'+(has?'':' hidden')+'><label for="'+px+'-gar">Qual é a garantia?</label><textarea id="'+px+'-gar" placeholder="Ex.: moto Honda CG 2019, placa ABC1D23, documento comigo">'+esc(val)+'</textarea></div>';
+}
+const garHas=px=>{const r=document.querySelector('input[name="'+px+'-g"]:checked');return !!r&&r.value==="sim"};
+const garVal=px=>garHas(px)?$("#"+px+"-gar").value.trim():"";
+function garForm(lid){
+  const l=S.loans.find(x=>x.id===lid);
+  sheet('<h3>Garantia do empréstimo</h3><form id="fg"><input type="hidden" id="g-l" value="'+lid+'">'+garBlock("g",l.guarantee||"")+
+   '<div class="acts"><button type="button" class="btn ghost" data-close-btn>Cancelar</button><button class="btn pri" type="submit">Salvar</button></div></form>');
+}
 function loanVals(){
   return{principal:r2($("#l-val").value),pct:Number($("#l-pct").value)||0,n:Math.max(1,parseInt($("#l-n").value)||1),freq:$("#l-freq").value,
     firstDue:$("#l-due").value,lateType:$("#l-lt").dataset.v,lateValue:Number($("#l-lv").value)||0,
-    guarantee:$("#l-g").dataset.v==="sim"?$("#l-gar").value.trim():""};
+    guarantee:garVal("l")};
 }
 function loanCalc(){
   const v=loanVals(),el=$("#l-calc");if(!el)return;
@@ -503,7 +521,7 @@ function submitClient(){
 }
 function submitLoan(){
   const v=loanVals();if(!v.principal||!v.firstDue){toast("Preencha valor e vencimento");return}
-  if($("#l-g").dataset.v==="sim"&&!v.guarantee){toast("Escreva qual é a garantia");$("#l-gar").focus();return}
+  if(garHas("l")&&!v.guarantee){toast("Escreva qual é a garantia");$("#l-gar").focus();return}
   const l=Object.assign({id:uid(),clientId:$("#l-c").value,paid:0,nextDue:v.firstDue,status:"aberto",createdAt:today()},v);
   S.loans.push(l);save();closeSheet();view={tab:"clientes",client:l.clientId};render();toast("Empréstimo salvo");
 }
@@ -544,7 +562,6 @@ document.addEventListener("click",e=>{
     seg.dataset.v=b.dataset.v;seg.querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed",x===b));
     if(seg.id==="l-lt"){$("#l-lvl").textContent=b.dataset.v==="pct"?"% da parcela por dia":"R$ por dia";$("#l-lv").value=b.dataset.v==="pct"?"2":"50";loanCalc()}
     if(seg.id==="p-kind"){payKind=b.dataset.v;payCalc(true)}
-    if(seg.id==="l-g"){$("#l-gbox").hidden=b.dataset.v!=="sim";if(b.dataset.v==="sim")$("#l-gar").focus()}
     return;
   }
   const a=b.dataset.act;if(!a)return;
@@ -553,6 +570,7 @@ document.addEventListener("click",e=>{
   else if(a==="newLoanPick")pickClientForLoan();
   else if(a==="newLoan")loanForm(b.dataset.c);
   else if(a==="undo")undo(b.dataset.p);
+  else if(a==="editGar")garForm(b.dataset.l);
   else if(a==="delClient"){const c=client(b.dataset.c);confirmSheet("Excluir "+c.name+"?","Os empréstimos e o histórico de pagamentos dessa pessoa também serão apagados.","Excluir",()=>{
     S.loans=S.loans.filter(l=>l.clientId!==c.id);S.payments=S.payments.filter(p=>p.clientId!==c.id);S.clients=S.clients.filter(x=>x.id!==c.id);save();view={tab:"clientes"};toast("Cliente excluído")})}
   else if(a==="delLoan"){const id=b.dataset.l;confirmSheet("Excluir este empréstimo?","Os pagamentos dele também saem do histórico.","Excluir",()=>{
@@ -576,8 +594,11 @@ document.addEventListener("input",e=>{
   if(id&&id.startsWith("l-"))loanCalc();
   if(id==="p-date")payCalc(true);
 });
-document.addEventListener("change",e=>{if(e.target.id&&e.target.id.startsWith("l-"))loanCalc();if(e.target.id==="p-date")payCalc(true)});
-document.addEventListener("submit",e=>{e.preventDefault();const id=e.target.id;if(id==="fc")submitClient();else if(id==="fl")submitLoan();else if(id==="fp")submitPay()});
+document.addEventListener("change",e=>{
+  const n=e.target.name;if(n&&/-g$/.test(n)){const px=n.slice(0,-2),box=$("#"+px+"-gbox");box.hidden=e.target.value!=="sim";if(!box.hidden)$("#"+px+"-gar").focus()}if(e.target.id&&e.target.id.startsWith("l-"))loanCalc();if(e.target.id==="p-date")payCalc(true)});
+document.addEventListener("submit",e=>{e.preventDefault();const id=e.target.id;if(id==="fc")submitClient();else if(id==="fl")submitLoan();else if(id==="fp")submitPay();else if(id==="fg"){
+  const l=S.loans.find(x=>x.id===$("#g-l").value),g=garVal("g");if(garHas("g")&&!g){toast("Escreva qual é a garantia");return}
+  l.guarantee=g;save();closeSheet();render();toast("Garantia salva")}});
 document.addEventListener("keydown",e=>{if(e.key==="Escape")closeSheet()});
 document.addEventListener("visibilitychange",()=>{if(!document.hidden&&!$("#layer").innerHTML)render()});
 
