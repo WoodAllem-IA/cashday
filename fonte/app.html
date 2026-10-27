@@ -170,6 +170,14 @@ fieldset.radio legend{font-size:13px;font-weight:600;color:var(--muted);padding:
 .legend{display:flex;gap:16px;font-size:13px;color:var(--muted)}
 .legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:middle}
 .rk{width:18px;color:var(--muted);font-weight:700;font-size:13px;text-align:center;flex-shrink:0}
+.flabel{font-size:13px;font-weight:600;color:var(--muted)}
+.files{display:flex;flex-wrap:wrap;gap:8px}
+.fthumb{position:relative;width:72px;height:72px;border-radius:10px;overflow:hidden;background:var(--bg);border:1px solid var(--line)}
+.fthumb a{display:grid;place-items:center;width:100%;height:100%;text-decoration:none}
+.fthumb img{width:100%;height:100%;object-fit:cover}
+.fdoc{font-weight:800;font-size:13px;color:var(--muted)}
+.fdel{position:absolute;top:2px;right:2px;width:22px;height:22px;border-radius:50%;background:rgba(0,0,0,.55);color:#fff;font-size:15px;line-height:1}
+.fadd{display:grid;place-items:center;text-align:center;width:72px;height:72px;border-radius:10px;border:1.5px dashed var(--line);font-size:11px;font-weight:600;color:var(--accent);cursor:pointer}
 .calc{background:var(--accent-soft);border-radius:12px;padding:12px 14px;margin-bottom:14px;display:grid;grid-template-columns:1fr auto;gap:4px 12px;font-size:14px}
 .calc span{color:var(--muted)}
 .calc b{text-align:right}
@@ -226,13 +234,112 @@ function load(){
   try{const raw=localStorage.getItem(KEY);if(raw){const d=Object.assign(blank(),JSON.parse(raw));d.settings=Object.assign(blank().settings,d.settings);const m=d.settings.msg;if(m&&/^\{nome\}, sua \{parcela\}/.test(m.late||"")&&/^\{nome\}, hoje vence/.test(m.today||""))d.settings.msg=null;return d}}catch(e){}
   return seed();
 }
-function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}queueSync()}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}queueSync();queuePush()}
+
+/* ---------- nuvem (servidor no Railway) ----------
+   O celular continua guardando tudo; a nuvem recebe cada mudança e devolve
+   as mudanças feitas em outro aparelho. Em conflito, junta os dois lados. */
+const CKEY="cashday-nuvem";
+let C=(()=>{try{return JSON.parse(localStorage.getItem(CKEY))||{}}catch(e){return{}}})();
+let cloud={state:"off",err:"",at:null},pushT=null,dirty=false,busy=false;
+const cloudOn=()=>!!(C.url&&C.token);
+function saveC(){try{localStorage.setItem(CKEY,JSON.stringify(C))}catch(e){}}
+async function cloudFetch(path,opt){
+  opt=opt||{};
+  const r=await fetch(C.url.replace(/\/+$/,"")+path,{method:opt.method||"GET",headers:{"Content-Type":"application/json",...(C.token?{Authorization:"Bearer "+C.token}:{})},body:opt.body?JSON.stringify(opt.body):undefined});
+  let j={};try{j=await r.json()}catch(e){}
+  if(r.status===401&&C.token){C.token="";saveC();cloud={state:"err",err:"Entre de novo com a senha",at:null};render()}
+  if(!r.ok&&r.status!==409)throw new Error(j.erro||("O servidor respondeu "+r.status));
+  return Object.assign(j,{status:r.status});
+}
+function queuePush(){if(!cloudOn())return;dirty=true;clearTimeout(pushT);pushT=setTimeout(pushCloud,1500)}
+function mergeState(remote,local){
+  const out=Object.assign(blank(),remote,{settings:local.settings||remote.settings,robot:local.robot});
+  ["clients","loans","payments"].forEach(k=>{
+    const m=new Map((remote[k]||[]).map(x=>[x.id,x]));(local[k]||[]).forEach(x=>m.set(x.id,x));out[k]=[...m.values()];
+  });
+  return out;
+}
+async function pushCloud(){
+  if(!cloudOn()||busy)return;busy=true;
+  try{
+    let j=await cloudFetch("/api/estado",{method:"PUT",body:{base:C.versao||0,dados:S}});
+    if(j.status===409){S=mergeState(j.dados||blank(),S);j=await cloudFetch("/api/estado",{method:"PUT",body:{base:j.versao,dados:S}});
+      try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}if(!$("#layer").innerHTML)render()}
+    if(j.ok){C.versao=j.versao;saveC();dirty=false;cloud={state:"ok",err:"",at:new Date()}}
+  }catch(e){cloud={state:"err",err:String(e.message||e),at:cloud.at}}
+  busy=false;if(view.tab==="ajustes"&&!$("#layer").innerHTML)render();
+}
+async function pullCloud(){
+  if(!cloudOn()||busy)return;
+  if(dirty)return pushCloud();
+  try{
+    const j=await cloudFetch("/api/estado");
+    if(j.ok&&j.dados&&j.versao>(C.versao||0)){S=Object.assign(blank(),j.dados,{robot:S.robot});C.versao=j.versao;saveC();
+      try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}if(!$("#layer").innerHTML)render()}
+    cloud={state:"ok",err:"",at:new Date()};
+  }catch(e){cloud={state:"err",err:String(e.message||e),at:cloud.at}}
+}
+const onlySamples=d=>!(d.clients||[]).some(c=>!c.sample);
+async function cloudConnect(url,senha){
+  url=url.trim().replace(/\/+$/,"");if(!/^https?:\/\//.test(url))url="https://"+url;
+  C={url};const j=await cloudFetch("/api/login",{method:"POST",body:{senha}});
+  if(!j.ok)throw new Error(j.erro||"Não entrou");
+  C.token=j.token;C.versao=0;saveC();
+  const e=await cloudFetch("/api/estado");
+  if(!e.dados){const r=await cloudFetch("/api/estado",{method:"PUT",body:{base:0,dados:S}});C.versao=r.versao;saveC();cloud={state:"ok",err:"",at:new Date()};return "subiu"}
+  if(onlySamples(S)){S=Object.assign(blank(),e.dados,{robot:S.robot});C.versao=e.versao;saveC();try{localStorage.setItem(KEY,JSON.stringify(S))}catch(x){}cloud={state:"ok",err:"",at:new Date()};return "baixou"}
+  return {escolher:e};
+}
+function cloudCard(){
+  if(!cloudOn())return '<div class="card"><h3>Nuvem (Railway)</h3><div class="note" style="background:transparent;padding:0">Guarda seus dados no seu servidor, com backup automático, fotos e documentos, e deixa abrir em mais de um aparelho.</div>'+
+   '<div class="f" style="margin:0"><label for="n-url">Endereço do servidor</label><input id="n-url" type="url" inputmode="url" autocapitalize="off" placeholder="https://cashday-production.up.railway.app" value="'+esc(C.url||"")+'"></div>'+
+   '<div class="f" style="margin:0"><label for="n-pw">Senha (APP_SENHA)</label><input id="n-pw" type="password" autocomplete="current-password"></div>'+
+   (cloud.state==="err"?'<div class="note" style="color:var(--late)">'+esc(cloud.err)+'</div>':'')+
+   '<button class="btn pri" data-act="cloudIn">Conectar</button></div>';
+  const when=cloud.at?cloud.at.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}):"-";
+  return '<div class="card"><h3>Nuvem (Railway)</h3><div class="note">'+(cloud.state==="err"?'<span style="color:var(--late)">Sem conexão: '+esc(cloud.err)+'</span> Suas mudanças ficam no celular e sobem quando a conexão voltar.':'<b style="color:var(--ink)">Conectado.</b> Tudo salvo na nuvem. Última sincronização: '+when+'.')+
+   '<div style="font-size:12px;margin-top:4px;overflow-wrap:anywhere">'+esc(C.url)+'</div></div>'+
+   '<div class="acts"><button class="btn sec2" data-act="cloudSync">Sincronizar agora</button><button class="btn ghost" data-act="cloudBackups">Backups da nuvem</button></div>'+
+   '<button class="link" data-act="cloudOut" style="align-self:flex-start;color:var(--muted)">Desconectar este aparelho</button></div>';
+}
+
+/* ---------- fotos e documentos (guardados na nuvem) ---------- */
+const fileUrl=f=>C.url.replace(/\/+$/,"")+"/api/arquivos/"+f.id+"?t="+encodeURIComponent(C.token);
+function filesStrip(kind,id,files){
+  files=files||[];
+  if(!cloudOn())return '<div class="files"><span class="hint" style="font-size:12px;color:var(--muted)">Conecte a nuvem em Ajustes para guardar fotos e documentos.</span></div>';
+  return '<div class="files">'+files.map(f=>'<div class="fthumb"><a href="'+esc(fileUrl(f))+'" target="_blank" rel="noopener" title="'+esc(f.name)+'">'+
+    (/^image\//.test(f.mime)?'<img src="'+esc(fileUrl(f))+'" alt="'+esc(f.name)+'" loading="lazy">':'<span class="fdoc">'+esc((f.name.split(".").pop()||"doc").slice(0,4).toUpperCase())+'</span>')+
+    '</a><button class="fdel" aria-label="Apagar '+esc(f.name)+'" data-act="fileDel" data-k="'+kind+'" data-id="'+id+'" data-f="'+f.id+'">×</button></div>').join("")+
+   '<label class="fadd"><input type="file" accept="image/*,application/pdf" hidden data-up="'+kind+':'+id+'">+ Foto ou<br>documento</label></div>';
+}
+function shrinkImage(file){
+  return new Promise((ok,no)=>{const img=new Image(),u=URL.createObjectURL(file);
+    img.onload=()=>{const m=1600,k=Math.min(1,m/Math.max(img.width,img.height)),c=document.createElement("canvas");c.width=Math.round(img.width*k);c.height=Math.round(img.height*k);
+      c.getContext("2d").drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(u);ok(c.toDataURL("image/jpeg",0.82))};
+    img.onerror=()=>{URL.revokeObjectURL(u);no(new Error("Não consegui ler a imagem"))};img.src=u});
+}
+const readAsDataURL=file=>new Promise((ok,no)=>{const r=new FileReader();r.onload=()=>ok(r.result);r.onerror=()=>no(r.error);r.readAsDataURL(file)});
+async function uploadFile(kind,id,file){
+  const owner=kind==="client"?client(id):S.loans.find(x=>x.id===id);if(!owner)return;
+  toast("Enviando "+file.name+"...");
+  try{
+    const isImg=/^image\//.test(file.type)&&!/gif|svg/.test(file.type);
+    if(!isImg&&file.size>8e6)throw new Error("Arquivo maior que 8 MB");
+    const url=isImg?await shrinkImage(file):await readAsDataURL(file);
+    const mime=isImg?"image/jpeg":file.type||"application/octet-stream",name=isImg?file.name.replace(/\.\w+$/,"")+".jpg":file.name;
+    const j=await cloudFetch("/api/arquivos",{method:"POST",body:{nome:name,tipo:mime,base64:url.split(",")[1]}});
+    owner.files=(owner.files||[]).concat({id:j.id,name,mime,at:today()});save();render();toast("Arquivo guardado");
+  }catch(e){toast("Não enviou: "+(e.message||e))}
+}
 
 /* ---------- robô de envio automático ---------- */
 let syncT=null,robo={state:"off",info:null,err:""};
-const roboOn=()=>!!(S.robot&&S.robot.url&&S.robot.pw);
+const roboOn=()=>cloudOn()||!!(S.robot&&S.robot.url&&S.robot.pw);
 function queueSync(){if(!roboOn())return;clearTimeout(syncT);syncT=setTimeout(()=>syncRobot(),2500)}
 async function roboCall(path,body){
+  if(cloudOn()){const j=await cloudFetch("/api/robo"+path,{method:body?"POST":"GET",body});if(!j.ok)throw new Error(j.erro||"Erro no servidor");return j}
   const url=S.robot.url.replace(/\/+$/,"")+path;
   const r=await fetch(url,{method:body?"POST":"GET",headers:{"Content-Type":"application/json","X-Senha":S.robot.pw},body:body?JSON.stringify(body):undefined});
   let j={};try{j=await r.json()}catch(e){}
@@ -243,7 +350,7 @@ async function syncRobot(showToast){
   if(!roboOn())return;
   robo.state="sync";
   try{
-    const info=await roboCall("/sync",{clients:S.clients,loans:S.loans,settings:S.settings});
+    const info=cloudOn()?await roboCall("/status"):await roboCall("/sync",{clients:S.clients,loans:S.loans,settings:S.settings});
     robo={state:"ok",info,err:""};
     const t=today();let ch=false;
     Object.keys(info.enviadosHoje||{}).forEach(id=>{const l=S.loans.find(x=>x.id===id);if(l&&l.chargedOn!==t){l.chargedOn=t;ch=true}});
@@ -484,6 +591,7 @@ function vCliente(id){
   return '<button class="back" data-back>'+I.back+'Clientes</button>'+
    '<div class="hero"><h2>'+esc(c.name)+'</h2>'+scoreBar(id)+'<div class="grid2 num"><span>WhatsApp</span><b>'+esc(fmtPhone(c.phone))+'</b><span>CPF</span><b>'+esc(c.cpf?fmtCPF(c.cpf):"Não informado")+'</b>'+
    '<span>Endereço</span><b style="overflow-wrap:anywhere">'+esc(c.address||"Não informado")+'</b></div>'+(c.notes?'<div class="note">'+esc(c.notes)+'</div>':'')+
+   '<div class="flabel">Fotos e documentos</div>'+filesStrip("client",id,c.files)+
    '<div class="acts"><button class="btn pri" data-act="newLoan" data-c="'+id+'">'+I.plus.replace('stroke-width="2.6"','stroke-width="2.6" width="18" height="18"')+'Emprestar</button><button class="btn ghost" data-act="editClient" data-c="'+id+'">Editar</button></div></div>'+
    sec("Empréstimos",ls.length?String(ls.length):"")+
    (ls.length?'<div class="list">'+ls.map(loanCard).join("")+'</div>':'<div class="empty">Nenhum empréstimo ainda.</div>')+
@@ -512,6 +620,7 @@ function loanCard(l){
    '<span>Multa por atraso</span><b>'+lateRule(l)+'</b>'+
    '<span>Garantia</span><b style="overflow-wrap:anywhere">'+(l.guarantee?esc(l.guarantee):"Sem garantia")+'<br><button class="link" style="color:var(--accent)" data-act="editGar" data-l="'+l.id+'">'+(l.guarantee?"Alterar":"Marcar garantia")+'</button></b>'+
    (lf?'<span style="color:var(--late)">Multa até hoje</span><b style="color:var(--late)">'+brl(lf)+'</b>':'')+'</div>'+
+   '<div class="flabel">Fotos (garantia, contrato, comprovantes)</div>'+filesStrip("loan",l.id,l.files)+
    (open?'<div class="acts"><button class="btn wa" data-charge="'+l.id+'">'+I.wa+'Cobrar</button><button class="btn pri" data-pay="'+l.id+'">'+I.cash+'Recebi</button></div>':'')+
    '<button class="link" data-act="delLoan" data-l="'+l.id+'" style="align-self:flex-start;color:var(--muted)">Excluir empréstimo</button></div>';
 }
@@ -625,6 +734,7 @@ function vAjustes(){
    '<div class="two"><div class="f"><label for="s-lt">Multa por dia</label><select id="s-lt"><option value="fixo"'+(s.lateType==="fixo"?" selected":"")+'>Valor fixo (R$)</option><option value="pct"'+(s.lateType==="pct"?" selected":"")+'>Porcentagem (%)</option></select></div>'+
    '<div class="f"><label for="s-lv">Valor</label><input id="s-lv" type="number" inputmode="decimal" step="0.01" value="'+s.lateValue+'"></div></div>'+
    '<button class="btn pri" data-act="saveSettings">Salvar padrão</button></div>'+
+  cloudCard()+
   '<div class="card"><h3>Mensagens de cobrança</h3><span class="hint" style="font-size:13px;color:var(--muted)">O app troca as palavras entre chaves pelos dados de cada cliente: '+MSG_KEYS.map(k=>'<b style="color:var(--ink)">'+k[0]+'</b> '+k[1]).join(", ")+'.</span>'+
    '<div class="f" style="margin:0"><label for="t-late">Quando está atrasado</label><textarea id="t-late" style="min-height:180px">'+esc(msgTpl("late"))+'</textarea></div>'+
    '<div class="f" style="margin:0"><label for="t-today">Quando vence hoje</label><textarea id="t-today" style="min-height:150px">'+esc(msgTpl("today"))+'</textarea></div>'+
@@ -634,8 +744,9 @@ function vAjustes(){
    '<button class="btn pri" data-act="saveTime">Salvar horário</button></div>'+
   '<div class="card"><h3>Envio automático pelo WhatsApp</h3>'+
    '<label class="opt" style="margin:0"><input type="checkbox" id="s-auto"'+(s.autoSend?" checked":"")+'><span>Mandar as cobranças sozinho no horário</span></label>'+
+   (cloudOn()?'<span class="hint" style="font-size:13px;color:var(--muted)">O robô roda no seu servidor do Railway e manda pela Evolution.</span>':
    '<div class="f" style="margin:0"><label for="s-rurl">Endereço do robô</label><input id="s-rurl" type="url" inputmode="url" autocapitalize="off" placeholder="https://cashday-robo.seunome.workers.dev" value="'+esc((S.robot||{}).url||"")+'"></div>'+
-   '<div class="f" style="margin:0"><label for="s-rpw">Senha do robô</label><input id="s-rpw" type="password" autocomplete="off" value="'+esc((S.robot||{}).pw||"")+'"></div>'+
+   '<div class="f" style="margin:0"><label for="s-rpw">Senha do robô</label><input id="s-rpw" type="password" autocomplete="off" value="'+esc((S.robot||{}).pw||"")+'"></div>')+
    '<div class="f" style="margin:0"><label for="s-rph">Seu WhatsApp (para o teste)</label><input id="s-rph" type="tel" inputmode="tel" value="'+esc((S.robot||{}).phone||"")+'"></div>'+
    roboStatusHTML()+
    '<div class="acts"><button class="btn pri" data-act="saveRobo">Salvar e conectar</button><button class="btn sec2" data-act="testRobo">Mandar teste</button></div>'+
@@ -643,7 +754,7 @@ function vAjustes(){
   '<div class="card"><h3>Aviso no iPhone nesse horário</h3><div class="note" style="background:transparent;padding:0">Para o iPhone te avisar todo dia na hora da cobrança. Leva 1 minuto:<ol>'+
    '<li>Abra o app <b>Atalhos</b> e toque em <b>Automação</b>.</li><li>Toque em <b>+</b>, escolha <b>Horário do Dia</b>, coloque <b>'+esc(s.chargeTime||"09:00")+'</b> e <b>Diariamente</b>. Marque <b>Executar Imediatamente</b>.</li>'+
    '<li>Adicione a ação <b>Mostrar Notificação</b> com o texto "Hora de cobrar: abra o CashDay".</li></ol></div></div>'+
-  '<div class="card"><h3>Cópia de segurança</h3><div class="note" style="background:transparent;padding:0">Os dados ficam guardados só neste celular. Copie o backup de vez em quando e mande para você mesmo no WhatsApp ou cole numa nota.</div>'+
+  '<div class="card"><h3>Cópia de segurança</h3><div class="note" style="background:transparent;padding:0">Os dados ficam guardados neste celular'+(cloudOn()?' e na nuvem, com backup automático':'')+'. Copie o backup de vez em quando e mande para você mesmo no WhatsApp ou cole numa nota.</div>'+
    '<div class="acts"><button class="btn sec2" data-act="copyBackup">Copiar backup</button><button class="btn ghost" data-act="restore">Restaurar</button></div></div>'+
   '<div class="card"><h3>Apagar tudo</h3><button class="btn danger" data-act="wipe">Apagar todos os dados</button></div>';
 }
@@ -826,8 +937,30 @@ document.addEventListener("click",e=>{
     S.loans=S.loans.filter(l=>l.id!==id);S.payments=S.payments.filter(p=>p.loanId!==id);save();toast("Empréstimo excluído")})}
   else if(a==="clearSample"){confirmSheet("Apagar os exemplos?","Os clientes de exemplo somem e o app fica pronto para os seus clientes de verdade.","Apagar exemplos",()=>{
     S.clients=S.clients.filter(x=>!x.sample);S.loans=S.loans.filter(x=>!x.sample);S.payments=S.payments.filter(x=>!x.sample);S.sample=false;save();view={tab:view.tab};toast("Exemplos apagados")})}
-  else if(a==="saveRobo"){S.robot={url:$("#s-rurl").value.trim(),pw:$("#s-rpw").value,phone:$("#s-rph").value.replace(/\D/g,"")};S.settings.autoSend=$("#s-auto").checked;
-    try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}robo.state="sync";render();syncRobot(true)}
+  else if(a==="saveRobo"){S.robot=cloudOn()?Object.assign({},S.robot,{phone:$("#s-rph").value.replace(/\D/g,"")}):{url:$("#s-rurl").value.trim(),pw:$("#s-rpw").value,phone:$("#s-rph").value.replace(/\D/g,"")};S.settings.autoSend=$("#s-auto").checked;
+    save();robo.state="sync";render();setTimeout(()=>syncRobot(true),cloudOn()?2500:0)}
+  else if(a==="cloudIn"){const url=$("#n-url").value,pw=$("#n-pw").value;if(!url||!pw){toast("Preencha o endereço e a senha");return}
+    cloud={state:"sync",err:"",at:null};toast("Conectando...");
+    cloudConnect(url,pw).then(r=>{
+      if(r==="subiu"){toast("Pronto! Seus dados subiram para a nuvem.");render();syncRobot()}
+      else if(r==="baixou"){toast("Pronto! Dados da nuvem carregados.");go({tab:"hoje"});syncRobot()}
+      else{const e=r.escolher;sheet('<h3>Já existem dados na nuvem</h3><p class="note">A nuvem tem '+(e.dados.clients||[]).length+' clientes. Este celular tem '+S.clients.length+'. Qual você quer manter?</p>'+
+        '<div class="list"><button class="btn pri block" data-act="cloudUseRemote" data-v="'+e.versao+'">Usar os dados da nuvem</button><button class="btn ghost block" data-act="cloudUseLocal">Juntar com os deste celular</button></div>');
+        window.__cloudRemote=e}
+    },err=>{C={url:url};saveC();cloud={state:"err",err:String(err.message||err),at:null};render();toast("Não conectou: "+cloud.err)})}
+  else if(a==="cloudUseRemote"){const e=window.__cloudRemote;S=Object.assign(blank(),e.dados,{robot:S.robot});C.versao=e.versao;saveC();try{localStorage.setItem(KEY,JSON.stringify(S))}catch(x){}
+    cloud={state:"ok",err:"",at:new Date()};closeSheet();go({tab:"hoje"});toast("Dados da nuvem carregados")}
+  else if(a==="cloudUseLocal"){const e=window.__cloudRemote;S=mergeState(e.dados,S);C.versao=e.versao;saveC();closeSheet();save();go({tab:"hoje"});toast("Dados juntados e salvos na nuvem")}
+  else if(a==="cloudSync"){toast("Sincronizando...");(dirty?pushCloud():pullCloud()).then(()=>{render();toast(cloud.state==="ok"?"Tudo sincronizado":"Sem conexão: "+cloud.err)})}
+  else if(a==="cloudOut"){confirmSheet("Desconectar este aparelho?","Os dados continuam neste celular e na nuvem. Só para de sincronizar.","Desconectar",()=>{C={url:C.url};saveC();cloud={state:"off",err:"",at:null};toast("Desconectado")})}
+  else if(a==="cloudBackups"){cloudFetch("/api/backups").then(j=>{sheet('<h3>Backups da nuvem</h3><p class="hint" style="font-size:13px;color:var(--muted)">Um por hora, mais um antes de cada troca grande.</p><div class="hist">'+
+      (j.backups||[]).map(b=>'<div class="hrow"><div class="l"><b>'+new Date(b.criado).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})+'</b><span>'+esc(b.motivo||"")+' · '+(b.clientes||0)+' clientes</span></div><div class="r"><button class="link" style="color:var(--accent)" data-act="cloudRestore" data-b="'+b.id+'">Restaurar</button></div></div>').join("")+
+      '</div><button class="btn ghost block" style="margin-top:12px" data-close-btn>Fechar</button>')},e=>toast("Não carregou: "+e.message))}
+  else if(a==="cloudRestore"){const id=b.dataset.b;confirmSheet("Restaurar este backup?","Os dados atuais serão trocados pelos do backup. A versão atual também fica guardada nos backups.","Restaurar",()=>{
+    cloudFetch("/api/backups/"+id).then(j=>{S=Object.assign(blank(),j.dados,{robot:S.robot});return cloudFetch("/api/estado",{method:"PUT",body:{forcar:true,dados:S}})}).then(j=>{C.versao=j.versao;saveC();try{localStorage.setItem(KEY,JSON.stringify(S))}catch(x){}go({tab:"hoje"});toast("Backup restaurado")},e=>toast("Não restaurou: "+e.message))})}
+  else if(a==="fileDel"){const k=b.dataset.k,oid=b.dataset.id,fid=b.dataset.f;confirmSheet("Apagar este arquivo?","Ele sai da nuvem e não dá para desfazer.","Apagar",()=>{
+    const owner=k==="client"?client(oid):S.loans.find(x=>x.id===oid);if(owner){owner.files=(owner.files||[]).filter(f=>f.id!==fid);save()}
+    cloudFetch("/api/arquivos/"+fid,{method:"DELETE"}).catch(()=>{});toast("Arquivo apagado")})}
   else if(a==="testRobo"){const ph=$("#s-rph").value.replace(/\D/g,"");if(!roboOn()){toast("Salve o endereço e a senha primeiro");return}if(ph.length<10){toast("Coloque seu WhatsApp com DDD");return}
     S.robot.phone=ph;try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}
     roboCall("/teste",{phone:ph}).then(()=>toast("Teste enviado. Olhe seu WhatsApp."),e=>toast("Teste falhou: "+e.message))}
@@ -851,15 +984,17 @@ document.addEventListener("input",e=>{
   if(id==="p-date")payCalc(true);
 });
 document.addEventListener("change",e=>{
+  if(e.target.dataset&&e.target.dataset.up){const [k,id]=e.target.dataset.up.split(":"),f=e.target.files&&e.target.files[0];if(f)uploadFile(k,id,f);e.target.value="";return}
   if(e.target.id==="pf-cli"){PF.cli=e.target.value;render();return}
   const n=e.target.name;if(n&&/-g$/.test(n)){const px=n.slice(0,-2),box=$("#"+px+"-gbox");box.hidden=e.target.value!=="sim";if(!box.hidden)$("#"+px+"-gar").focus()}if(e.target.id&&e.target.id.startsWith("l-"))loanCalc();if(e.target.id==="p-date")payCalc(true)});
 document.addEventListener("submit",e=>{e.preventDefault();const id=e.target.id;if(id==="fc")submitClient();else if(id==="fl")submitLoan();else if(id==="fp")submitPay();else if(id==="fg"){
   const l=S.loans.find(x=>x.id===$("#g-l").value),g=garVal("g");if(garHas("g")&&!g){toast("Escreva qual é a garantia");return}
   l.guarantee=g;save();closeSheet();render();toast("Garantia salva")}});
 document.addEventListener("keydown",e=>{if(e.key==="Escape")closeSheet()});
-document.addEventListener("visibilitychange",()=>{if(!document.hidden){if(roboOn())syncRobot();if(!$("#layer").innerHTML)render()}});
+document.addEventListener("visibilitychange",()=>{if(!document.hidden){if(cloudOn())pullCloud();if(roboOn())syncRobot();if(!$("#layer").innerHTML)render()}});
 
-save();render();syncRobot();
+try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}render();syncRobot();if(cloudOn())pullCloud();
+setInterval(()=>{if(cloudOn()&&!document.hidden)pullCloud()},60000);
 setInterval(()=>{if(view.tab==="hoje"&&!$("#layer").innerHTML&&!document.hidden)render()},60000);
 try{if("serviceWorker" in navigator&&window.CASHDAY_STANDALONE)navigator.serviceWorker.register("sw.js")}catch(e){}
 })();

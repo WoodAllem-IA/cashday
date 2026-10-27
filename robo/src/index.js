@@ -179,4 +179,4 @@ export default {
   }
 };
 
-export { message, pending, nowBR, brl };
+export { message, pending, nowBR, brl, sendWhats };
