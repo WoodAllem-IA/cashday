@@ -50,7 +50,7 @@ function message(l, c, t, settings) {
     saudacao: h < 5 ? "Boa noite" : h < 12 ? "Bom dia" : h < 18 ? "Boa tarde" : "Boa noite", parc: `${l.paid + 1}/${l.n}`,
     nome: c.name.replace(/\s*\(exemplo\)/, "").split(" ")[0], parcela: `parcela ${l.paid + 1} de ${l.n}`, valor: brl(parcel(l)),
     vencimento: fmtD(l.nextDue), dias: dl + (dl === 1 ? " dia" : " dias"), multa: brl(lf), total: brl(parcel(l) + lf),
-    juros: brl(jurosParc(l) + lf), regra: lateRule(l)
+    juros: brl(jurosParc(l) + lf), porcentagem: brl(jurosParc(l) + lf), regra: lateRule(l)
   };
   return tpl.replace(/\{(\w+)\}/g, (m, k) => k in v ? v[k] : m);
 }
