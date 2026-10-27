@@ -402,7 +402,7 @@ function vHoje(){
   return header()+
    '<div class="sum"><div><small>Vence hoje</small><b class="num">'+brl(sumToday)+'</b></div>'+
    '<div class="l"><small>Atrasado</small><b class="num">'+brl(sumLate)+'</b></div>'+
-   '<div><small>A receber</small><b class="num">'+brl(street)+'</b></div></div>'+
+   '<div><small>Valor investido</small><b class="num">'+brl(street)+'</b></div></div>'+
    chargeCTA(late.concat(now))+
    sec("Atrasados",late.length?late.length+(late.length>1?" clientes":" cliente"):"")+
    (late.length?'<div class="list">'+late.map(dueCard).join("")+'</div>':'<div class="empty">Ninguém atrasado. Boa!</div>')+
@@ -600,17 +600,17 @@ function vPainel(){
    '<div class="kpis">'+
     kpi("Recebido",brl(rec),pays.length+(pays.length===1?" pagamento":" pagamentos"))+
     kpi("Lucro",brl(luc),"juros e multas"+(mul?" · multas "+brl(mul):""),"good")+
-    kpi("Emprestado",brl(lent),"no período")+
-    kpi("Na rua",brl(street),open.length+(open.length===1?" empréstimo aberto":" empréstimos abertos"))+
+    kpi("Valor aplicado",brl(lent),"no período")+
+    kpi("Valor investido",brl(street),open.length+(open.length===1?" empréstimo aberto":" empréstimos abertos"))+
     kpi("Atrasado agora",brl(lateAmt),lateNow.length+(lateNow.length===1?" parcela":" parcelas"),lateNow.length?"bad":"")+
     kpi("Pagou em dia",onTime===null?"-":onTime+"%","dos pagamentos do período",onTime!==null&&onTime<70?"bad":"")+
    '</div>'+
    '<div class="card" style="margin-top:14px"><h3>Recebido e lucro por '+(daily?"dia (últimos 7)":"mês")+'</h3>'+barChart(rows)+
     '<div class="legend"><span><i style="background:var(--accent-soft)"></i>Recebido</span><span><i style="background:var(--accent)"></i>Lucro</span></div></div>'+
    (cf?'':sec("Melhores clientes","mais lucro")+rankList(best,"Ninguém pagou nada nesse período.")+
-   sec("Deram mais trabalho","mais atrasos")+rankList(work,"Ninguém atrasou nesse período. Boa!")+
+   sec("Clientes com atrasos recorrentes","")+rankList(work,"Ninguém atrasou nesse período. Boa!")+
    sec("Maiores devedores","agora")+rankList(debt,"Ninguém devendo."))+
-   '<p class="hint" style="font-size:12px;color:var(--muted);margin-top:14px">Lucro é o que você recebeu menos o dinheiro emprestado que voltou: juros, multas e só-juros contam inteiros.</p>';
+   '<p class="hint" style="font-size:12px;color:var(--muted);margin-top:14px">Lucro é o que você recebeu menos o valor aplicado que voltou: juros, multas e só-juros contam inteiros.</p>';
 }
 const kpi=(l,v,s,tone)=>'<div class="kpi'+(tone?" "+tone:"")+'"><small>'+l+'</small><b class="num">'+v+'</b><span>'+esc(s)+'</span></div>';
 
