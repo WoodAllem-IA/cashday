@@ -257,6 +257,9 @@ function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}queueS
    as mudanças feitas em outro aparelho. Em conflito, junta os dois lados. */
 const CKEY="cashday-nuvem";
 let C=(()=>{try{return JSON.parse(localStorage.getItem(CKEY))||{}}catch(e){return{}}})();
+// aberto pelo endereço do Railway: tudo vem das variáveis do servidor, só pede a senha
+const SERVER=!!window.CASHDAY_SERVIDOR;
+if(SERVER&&C.url!==location.origin)C={url:location.origin};
 let cloud={state:"off",err:"",at:null},pushT=null,dirty=false,busy=false;
 const cloudOn=()=>!!(C.url&&C.token);
 function saveC(){try{localStorage.setItem(CKEY,JSON.stringify(C))}catch(e){}}
@@ -315,9 +318,9 @@ function cloudCard(){
    '<button class="btn pri" data-act="cloudIn">Conectar</button></div>';
   const when=cloud.at?cloud.at.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}):"-";
   return '<div class="card"><h3>Nuvem (Railway)</h3><div class="note">'+(cloud.state==="err"?'<span style="color:var(--late)">Sem conexão: '+esc(cloud.err)+'</span> Suas mudanças ficam no celular e sobem quando a conexão voltar.':'<b style="color:var(--ink)">Conectado.</b> Tudo salvo na nuvem. Última sincronização: '+when+'.')+
-   '<div style="font-size:12px;margin-top:4px;overflow-wrap:anywhere">'+esc(C.url)+'</div></div>'+
+   (SERVER?'':'<div style="font-size:12px;margin-top:4px;overflow-wrap:anywhere">'+esc(C.url)+'</div>')+'</div>'+
    '<div class="acts"><button class="btn sec2" data-act="cloudSync">Sincronizar agora</button><button class="btn ghost" data-act="cloudBackups">Backups da nuvem</button></div>'+
-   '<button class="link" data-act="cloudOut" style="align-self:flex-start;color:var(--muted)">Desconectar este aparelho</button></div>';
+   (SERVER?'<button class="link" data-act="cloudOut" style="align-self:flex-start;color:var(--muted)">Sair deste aparelho</button></div>':'<button class="link" data-act="cloudOut" style="align-self:flex-start;color:var(--muted)">Desconectar este aparelho</button></div>');
 }
 
 /* ---------- fotos e documentos (guardados na nuvem) ---------- */
@@ -368,12 +371,21 @@ async function syncRobot(showToast){
   try{
     const info=cloudOn()?await roboCall("/status"):await roboCall("/sync",{clients:S.clients,loans:S.loans,settings:S.settings});
     robo={state:"ok",info,err:""};
+    if(SERVER&&info.horario)S.settings.chargeTime=info.horario;
     const t=today();let ch=false;
     Object.keys(info.enviadosHoje||{}).forEach(id=>{const l=S.loans.find(x=>x.id===id);if(l&&l.chargedOn!==t){l.chargedOn=t;ch=true}});
     if(ch)try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}
     if(showToast)toast("Robô conectado");
   }catch(e){robo={state:"err",info:null,err:String(e.message||e)};if(showToast)toast("Não conectou: "+robo.err)}
   if(!$("#layer").innerHTML&&(view.tab==="hoje"||view.tab==="ajustes"))render();
+}
+function envCard(){
+  const i=robo.state==="ok"?robo.info:null,row=(k,v)=>'<div class="num" style="font-size:14px"><b style="color:var(--ink)">'+k+'</b>: '+v+'</div>';
+  return '<div class="card"><h3>Cobrança e envio automático</h3><div class="note" style="background:transparent;padding:0">Essas opções vêm das variáveis do Railway (cashday &gt; Variables). Para mudar, edite lá e espere o servidor reiniciar.</div>'+
+   (i?'<div class="note">'+row("HORARIO_COBRANCA",esc(i.horario||"09:00"))+row("ENVIO_AUTOMATICO",i.ligado?"sim":"não")+row("WHATSAPP_TESTE",i.teste?"configurado":"não configurado")+row("Evolution",i.zapi?"configurada":'<span style="color:var(--late)">falta EVOLUTION_URL, EVOLUTION_APIKEY ou EVOLUTION_INSTANCIA</span>')+'</div>':'')+
+   roboStatusHTML()+
+   '<div class="acts"><button class="btn sec2" data-act="testRobo">Mandar teste</button><button class="btn ghost" data-act="roboRefresh">Atualizar</button></div>'+
+   '<span class="hint" style="font-size:12px;color:var(--muted)">O robô manda uma mensagem a cada 2 minutos, entre o horário e as 21h, e nunca cobra a mesma pessoa duas vezes no dia. O teste vai para o número de WHATSAPP_TESTE.</span></div>';
 }
 function roboStatusHTML(){
   if(!roboOn())return '<div class="note">Preencha o endereço e a senha do robô para conectar.</div>';
@@ -463,9 +475,16 @@ function renderTabs(){
 }
 const tabBtn=(id,label,ico,on)=>'<button class="tab" data-tab="'+id+'"'+(on?' aria-current="page"':'')+'>'+ico+label+'</button>';
 
+function vEntrar(){
+  return header()+'<div class="card"><h3>Entrar</h3><div class="note" style="background:transparent;padding:0">Digite a senha do CashDay (a mesma da variável APP_SENHA do Railway). Só precisa fazer isso uma vez neste aparelho.</div>'+
+   '<div class="f" style="margin:0"><label for="n-pw">Senha</label><input id="n-pw" type="password" autocomplete="current-password"></div>'+
+   (cloud.state==="err"?'<div class="note" style="color:var(--late)">'+esc(cloud.err)+'</div>':'')+
+   '<button class="btn pri" data-act="cloudIn">Entrar</button></div>';
+}
 function render(){
-  renderTabs();
   const app=$("#app");
+  if(SERVER&&!cloudOn()){$("#tabs").innerHTML="";app.innerHTML=vEntrar();return}
+  renderTabs();
   if(view.tab==="hoje")app.innerHTML=vHoje();
   else if(view.tab==="clientes")app.innerHTML=view.client?vCliente(view.client):vClientes();
   else if(view.tab==="painel")app.innerHTML=vPainel();
@@ -756,7 +775,7 @@ function vAjustes(){
    '<div class="f" style="margin:0"><label for="t-today">Quando vence hoje</label><textarea id="t-today" style="min-height:150px">'+esc(msgTpl("today"))+'</textarea></div>'+
    '<div class="f" style="margin:0"><label for="t-before">Antes do vencimento</label><textarea id="t-before" style="min-height:100px">'+esc(msgTpl("before"))+'</textarea></div>'+
    '<div class="acts"><button class="btn pri" data-act="saveMsg">Salvar mensagens</button><button class="btn ghost" data-act="resetMsg">Voltar ao padrão</button></div></div>'+
-  '<div class="card"><h3>Horário da cobrança</h3><div class="f" style="margin:0"><label for="s-time">Que horas você quer cobrar os clientes?</label><input id="s-time" type="time" value="'+esc(s.chargeTime||"09:00")+'"><span class="hint">A partir desse horário a tela Hoje mostra o botão "Cobrar todos".</span></div>'+
+  (SERVER?envCard():'<div class="card"><h3>Horário da cobrança</h3><div class="f" style="margin:0"><label for="s-time">Que horas você quer cobrar os clientes?</label><input id="s-time" type="time" value="'+esc(s.chargeTime||"09:00")+'"><span class="hint">A partir desse horário a tela Hoje mostra o botão "Cobrar todos".</span></div>'+
    '<button class="btn pri" data-act="saveTime">Salvar horário</button></div>'+
   '<div class="card"><h3>Envio automático pelo WhatsApp</h3>'+
    '<label class="opt" style="margin:0"><input type="checkbox" id="s-auto"'+(s.autoSend?" checked":"")+'><span>Mandar as cobranças sozinho no horário</span></label>'+
@@ -766,7 +785,7 @@ function vAjustes(){
    '<div class="f" style="margin:0"><label for="s-rph">Seu WhatsApp (para o teste)</label><input id="s-rph" type="tel" inputmode="tel" value="'+esc((S.robot||{}).phone||"")+'"></div>'+
    roboStatusHTML()+
    '<div class="acts"><button class="btn pri" data-act="saveRobo">Salvar e conectar</button><button class="btn sec2" data-act="testRobo">Mandar teste</button></div>'+
-   '<span class="hint" style="font-size:12px;color:var(--muted)">O robô manda uma mensagem a cada 2 minutos, entre o horário escolhido e as 21h, e nunca cobra a mesma pessoa duas vezes no dia. Clientes de exemplo nunca recebem.</span></div>'+
+   '<span class="hint" style="font-size:12px;color:var(--muted)">O robô manda uma mensagem a cada 2 minutos, entre o horário escolhido e as 21h, e nunca cobra a mesma pessoa duas vezes no dia. Clientes de exemplo nunca recebem.</span></div>')+
   '<div class="card"><h3>Aviso no iPhone nesse horário</h3><div class="note" style="background:transparent;padding:0">Para o iPhone te avisar todo dia na hora da cobrança. Leva 1 minuto:<ol>'+
    '<li>Abra o app <b>Atalhos</b> e toque em <b>Automação</b>.</li><li>Toque em <b>+</b>, escolha <b>Horário do Dia</b>, coloque <b>'+esc(s.chargeTime||"09:00")+'</b> e <b>Diariamente</b>. Marque <b>Executar Imediatamente</b>.</li>'+
    '<li>Adicione a ação <b>Mostrar Notificação</b> com o texto "Hora de cobrar: abra o CashDay".</li></ol></div></div>'+
@@ -955,7 +974,7 @@ document.addEventListener("click",e=>{
     S.clients=S.clients.filter(x=>!x.sample);S.loans=S.loans.filter(x=>!x.sample);S.payments=S.payments.filter(x=>!x.sample);S.sample=false;save();view={tab:view.tab};toast("Exemplos apagados")})}
   else if(a==="saveRobo"){S.robot=cloudOn()?Object.assign({},S.robot,{phone:$("#s-rph").value.replace(/\D/g,"")}):{url:$("#s-rurl").value.trim(),pw:$("#s-rpw").value,phone:$("#s-rph").value.replace(/\D/g,"")};S.settings.autoSend=$("#s-auto").checked;
     save();robo.state="sync";render();setTimeout(()=>syncRobot(true),cloudOn()?2500:0)}
-  else if(a==="cloudIn"){const url=$("#n-url").value,pw=$("#n-pw").value;if(!url||!pw){toast("Preencha o endereço e a senha");return}
+  else if(a==="cloudIn"){const url=SERVER?location.origin:$("#n-url").value,pw=$("#n-pw").value;if(!url||!pw){toast(SERVER?"Digite a senha":"Preencha o endereço e a senha");return}
     cloud={state:"sync",err:"",at:null};toast("Conectando...");
     cloudConnect(url,pw).then(r=>{
       if(r==="subiu"){toast("Pronto! Seus dados subiram para a nuvem.");render();syncRobot()}
@@ -977,6 +996,8 @@ document.addEventListener("click",e=>{
   else if(a==="fileDel"){const k=b.dataset.k,oid=b.dataset.id,fid=b.dataset.f;confirmSheet("Apagar este arquivo?","Ele sai da nuvem e não dá para desfazer.","Apagar",()=>{
     const owner=k==="client"?client(oid):S.loans.find(x=>x.id===oid);if(owner){owner.files=(owner.files||[]).filter(f=>f.id!==fid);save()}
     cloudFetch("/api/arquivos/"+fid,{method:"DELETE"}).catch(()=>{});toast("Arquivo apagado")})}
+  else if(a==="roboRefresh"){syncRobot(true)}
+  else if(a==="testRobo"&&SERVER){roboCall("/teste",{}).then(()=>toast("Teste enviado. Olhe seu WhatsApp."),e=>toast("Teste falhou: "+e.message))}
   else if(a==="testRobo"){const ph=$("#s-rph").value.replace(/\D/g,"");if(!roboOn()){toast("Salve o endereço e a senha primeiro");return}if(ph.length<10){toast("Coloque seu WhatsApp com DDD");return}
     S.robot.phone=ph;try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}
     roboCall("/teste",{phone:ph}).then(()=>toast("Teste enviado. Olhe seu WhatsApp."),e=>toast("Teste falhou: "+e.message))}

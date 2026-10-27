@@ -70,11 +70,24 @@ async function backup(dados, motivo, force) {
 const evoOk = () => !!(process.env.EVOLUTION_URL && process.env.EVOLUTION_APIKEY && process.env.EVOLUTION_INSTANCIA);
 // mesmo envio do robô do Cloudflare, usando as variáveis do Railway
 const enviar = (phone, text) => sendWhats(process.env, phone, text);
+// horário, envio automático e número do teste vêm das variáveis do Railway
+const env = k => (process.env[k] || "").trim();
+const sim = v => /^(sim|s|true|1|ligado|on|yes)$/i.test(v);
+function config(dados) {
+  const st = (dados && dados.settings) || {};
+  const h = env("HORARIO_COBRANCA");
+  return {
+    horario: /^\d{1,2}:\d{2}$/.test(h) ? h.padStart(5, "0") : st.chargeTime || "09:00",
+    ligado: env("ENVIO_AUTOMATICO") ? sim(env("ENVIO_AUTOMATICO")) : !!st.autoSend,
+    teste: env("WHATSAPP_TESTE").replace(/\D/g, "")
+  };
+}
 async function rodada() {
   const { dados } = await getEstado();
-  if (!dados || !dados.settings || !dados.settings.autoSend || !evoOk()) return "desligado";
+  const cfg = config(dados);
+  if (!dados || !cfg.ligado || !evoOk()) return "desligado";
   const { date, hm } = nowBR();
-  if (hm < (dados.settings.chargeTime || "09:00")) return "antes do horário";
+  if (hm < cfg.horario) return "antes do horário";
   if (hm >= "21:00") return "muito tarde";
   const sent = Object.fromEntries((await db.query("select loan_id from enviados where dia=$1", [date])).rows.map(r => [r.loan_id, true]));
   const list = pending(dados, sent, date);
@@ -83,7 +96,7 @@ async function rodada() {
   const ins = await db.query("insert into enviados (dia, loan_id) values ($1,$2) on conflict do nothing returning loan_id", [date, l.id]);
   if (!ins.rowCount) return "já enviado";
   try {
-    await enviar(c.phone, message(l, c, date, dados.settings));
+    await enviar(c.phone, message(l, c, date, { ...dados.settings, chargeTime: cfg.horario }));
     await db.query("insert into envio_log (dia, loan_id, nome, ok) values ($1,$2,$3,true)", [date, l.id, c.name]);
     return "enviado para " + c.name;
   } catch (e) {
@@ -94,13 +107,14 @@ async function rodada() {
 async function roboStatus() {
   const { date, hm } = nowBR();
   const { dados } = await getEstado();
+  const cfg = config(dados);
   const sentRows = (await db.query("select loan_id, em from enviados where dia=$1", [date])).rows;
   const sent = Object.fromEntries(sentRows.map(r => [r.loan_id, r.em]));
   const log = (await db.query("select em, dia, nome, ok, erro from envio_log order by id desc limit 30")).rows
     .map(r => ({ at: new Date(r.em).toISOString(), date: r.dia, name: r.nome, ok: r.ok, error: r.erro }));
   return {
     ok: true, agora: date + " " + hm, zapi: evoOk(), envio: evoOk() ? "Evolution" : null,
-    ligado: !!(dados && dados.settings && dados.settings.autoSend), horario: dados && dados.settings ? dados.settings.chargeTime || "09:00" : null,
+    ligado: cfg.ligado, horario: cfg.horario, teste: !!cfg.teste,
     pendentes: dados ? pending(dados, sent, date).length : 0, enviadosHoje: sent, log
   };
 }
@@ -181,7 +195,8 @@ async function api(req, res, url) {
   if (p === "/api/robo/status") return send(res, 200, await roboStatus());
   if (p === "/api/robo/rodar" && req.method === "POST") return send(res, 200, { ok: true, resultado: await rodada() });
   if (p === "/api/robo/teste" && req.method === "POST") {
-    const { phone } = await readBody(req, 1e4);
+    const phone = config((await getEstado()).dados).teste || String((await readBody(req, 1e4)).phone || "").replace(/\D/g, "");
+    if (!phone) return send(res, 400, { ok: false, erro: "Falta configurar WHATSAPP_TESTE no Railway" });
     if (!evoOk()) return send(res, 400, { ok: false, erro: "Falta configurar a Evolution no Railway" });
     await enviar(phone, "Teste do CashDay: o envio automático está funcionando.");
     return send(res, 200, { ok: true });
@@ -197,7 +212,9 @@ const server = http.createServer(async (req, res) => {
     // o próprio app também fica disponível no endereço do Railway
     const f = url.pathname === "/" ? "/index.html" : url.pathname;
     if (!PUBLIC.has(f)) { res.writeHead(404); return res.end("Não encontrado"); }
-    const body = await fs.readFile(path.join(ROOT, f));
+    let body = await fs.readFile(path.join(ROOT, f));
+    // avisa o app que ele está no servidor: endereço e opções vêm das variáveis do Railway
+    if (f === "/index.html") body = body.toString("utf8").replace("<script>", "<script>window.CASHDAY_SERVIDOR=true</script><script>");
     res.writeHead(200, { "Content-Type": TYPES[path.extname(f)] || "application/octet-stream", "Cache-Control": "no-cache" });
     res.end(body);
   } catch (e) {
