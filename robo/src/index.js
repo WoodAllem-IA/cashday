@@ -1,8 +1,12 @@
 // Robô do CashDay: guarda uma cópia dos dados do app e, no horário escolhido,
-// manda as cobranças do dia pelo WhatsApp (Z-API), uma mensagem por vez.
+// manda as cobranças do dia pelo WhatsApp (Evolution API ou Z-API), uma mensagem por vez.
 //
 // Segredos (Cloudflare > Worker > Settings > Variables and Secrets):
-//   SENHA_ROBO         senha que o app usa para falar com o robô
+//   SENHA_ROBO           senha que o app usa para falar com o robô
+//   EVOLUTION_URL        endereço da Evolution na sua VPS (ex.: https://1-2-3-4.sslip.io)
+//   EVOLUTION_APIKEY     chave da Evolution (AUTHENTICATION_API_KEY)
+//   EVOLUTION_INSTANCIA  nome da instância conectada ao seu WhatsApp
+// Ou, no lugar da Evolution:
 //   ZAPI_INSTANCIA     ID da instância na Z-API
 //   ZAPI_TOKEN         token da instância na Z-API
 //   ZAPI_CLIENT_TOKEN  token de segurança da conta Z-API (opcional)
@@ -56,9 +60,21 @@ function message(l, c, t, settings) {
 }
 function waNumber(p) { let d = String(p || "").replace(/\D/g, ""); if (d.length <= 11) d = "55" + d; return d; }
 
-/* ---------- Z-API ---------- */
+/* ---------- envio: Evolution API (VPS própria) ou Z-API ---------- */
+const hasEvolution = env => !!(env.EVOLUTION_URL && env.EVOLUTION_APIKEY && env.EVOLUTION_INSTANCIA);
+const hasZapi = env => !!(env.ZAPI_INSTANCIA && env.ZAPI_TOKEN && env.ZAPI_INSTANCIA !== "x");
+async function sendEvolution(env, phone, text) {
+  const url = `${env.EVOLUTION_URL.replace(/\/+$/, "")}/message/sendText/${encodeURIComponent(env.EVOLUTION_INSTANCIA)}`;
+  const post = body => fetch(url, { method: "POST", headers: { "Content-Type": "application/json", apikey: env.EVOLUTION_APIKEY }, body: JSON.stringify(body) });
+  let r = await post({ number: waNumber(phone), text, delay: 3000 }); // formato da v2
+  if (r.status === 400) r = await post({ number: waNumber(phone), options: { delay: 3000 }, textMessage: { text } }); // formato da v1
+  const body = await r.text();
+  if (!r.ok) throw new Error(`Evolution respondeu ${r.status}: ${body.slice(0, 200)}`);
+  return body;
+}
 async function sendWhats(env, phone, text) {
-  if (!env.ZAPI_INSTANCIA || !env.ZAPI_TOKEN) throw new Error("Z-API não configurada no robô");
+  if (hasEvolution(env)) return sendEvolution(env, phone, text);
+  if (!hasZapi(env)) throw new Error("WhatsApp não configurado no robô (Evolution ou Z-API)");
   const headers = { "Content-Type": "application/json" };
   if (env.ZAPI_CLIENT_TOKEN) headers["Client-Token"] = env.ZAPI_CLIENT_TOKEN;
   const r = await fetch(`https://api.z-api.io/instances/${env.ZAPI_INSTANCIA}/token/${env.ZAPI_TOKEN}/send-text`, {
@@ -125,7 +141,7 @@ async function status(env) {
   const sent = await getJSON(env, "sent:" + date, {});
   const log = await getJSON(env, "log", []);
   return {
-    ok: true, agora: date + " " + hm, zapi: !!(env.ZAPI_INSTANCIA && env.ZAPI_TOKEN),
+    ok: true, agora: date + " " + hm, zapi: hasEvolution(env) || hasZapi(env), envio: hasEvolution(env) ? "Evolution" : hasZapi(env) ? "Z-API" : null,
     ligado: !!(state && state.settings && state.settings.autoSend),
     horario: state && state.settings ? state.settings.chargeTime || "09:00" : null,
     pendentes: state ? pending(state, sent, date).length : 0,

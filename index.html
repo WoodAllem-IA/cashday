@@ -273,7 +273,7 @@ function roboStatusHTML(){
   if(robo.state==="err")return '<div class="note" style="color:var(--late)">Não consegui falar com o robô: '+esc(robo.err)+'</div>';
   if(robo.state!=="ok")return '<div class="note">Conectando ao robô...</div>';
   const i=robo.info,log=(i.log||[]).slice(0,6);
-  return '<div class="note"><b style="color:var(--ink)">Robô conectado.</b> '+(i.zapi?"WhatsApp (Z-API) configurado. ":'<span style="color:var(--late)">Faltam os códigos da Z-API no robô.</span> ')+
+  return '<div class="note"><b style="color:var(--ink)">Robô conectado.</b> '+(i.zapi?"WhatsApp configurado"+(i.envio?" ("+esc(i.envio)+")":"")+". ":'<span style="color:var(--late)">Falta configurar a Evolution no robô.</span> ')+
    (i.ligado?"Envio automático ligado às "+esc(i.horario)+".":"Envio automático desligado.")+' Hoje: '+Object.keys(i.enviadosHoje||{}).length+' enviadas, '+i.pendentes+' na fila.'+
    (log.length?'<div style="margin-top:8px">'+log.map(x=>'<div class="num" style="font-size:13px">'+esc(x.at.slice(11,16))+' '+esc(fmtD(x.date))+' · '+esc(x.name)+' · '+(x.ok?'<span style="color:var(--ok)">enviada</span>':'<span style="color:var(--late)">erro: '+esc(x.error||"")+'</span>')+'</div>').join("")+'</div>':'')+'</div>';
 }
