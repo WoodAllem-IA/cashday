@@ -353,6 +353,27 @@ async function api(req, res, url) {
   if (p === "/api/whats/status") return send(res, 200, { ok: true, ...(await whatsStatus(eu)) });
   if (p === "/api/whats/conectar" && req.method === "POST") return send(res, 200, { ok: true, ...(await conectarWhats(eu)) });
   if (p === "/api/whats/desconectar" && req.method === "POST") { await desconectarWhats(eu); return send(res, 200, { ok: true }); }
+  // cobrança manual (botões "Cobrar" e "Cobrar todos"): sai direto pelo WhatsApp da conta, sem abrir o link
+  if (p === "/api/whats/enviar" && req.method === "POST") {
+    const b = await readBody(req, 1e5);
+    const phone = String(b.phone || "").replace(/\D/g, ""), text = String(b.text || "").trim().slice(0, 4000);
+    const loanId = String(b.loanId || "").slice(0, 60), nome = String(b.nome || "").slice(0, 80);
+    if (phone.length < 10) return send(res, 400, { ok: false, erro: "O cliente precisa ter WhatsApp com DDD" });
+    if (!text) return send(res, 400, { ok: false, erro: "Escreva a mensagem" });
+    if (!evoOk()) return send(res, 400, { ok: false, erro: "Falta configurar EVOLUTION_URL e EVOLUTION_APIKEY no Railway" });
+    const inst = instanciaDe(eu);
+    if ((await estadoWhats(inst)) !== "open") return send(res, 400, { ok: false, erro: "Conecte o WhatsApp pelo QR Code em Ajustes" });
+    const { date } = nowBR();
+    try { await enviar(inst, phone, text); } catch (e) {
+      if (loanId) await db.query("insert into envio_log (dia, loan_id, nome, ok, erro, usuario) values ($1,$2,$3,false,$4,$5)", [date, loanId, nome, String(e.message || e).slice(0, 300), uid]);
+      return send(res, 502, { ok: false, erro: String(e.message || e) });
+    }
+    if (loanId) { // o robô não cobra de novo hoje
+      await db.query("insert into enviados (dia, loan_id, usuario) values ($1,$2,$3) on conflict do nothing", [date, loanId, uid]);
+      await db.query("insert into envio_log (dia, loan_id, nome, ok, usuario) values ($1,$2,$3,true,$4)", [date, loanId, nome, uid]);
+    }
+    return send(res, 200, { ok: true });
+  }
   if (p === "/api/robo/status") return send(res, 200, await roboStatus(eu));
   if (p === "/api/robo/rodar" && req.method === "POST") return send(res, 200, { ok: true, resultado: await rodadaDe(eu) });
   if (p === "/api/robo/teste" && req.method === "POST") {
