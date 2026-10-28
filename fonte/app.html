@@ -567,7 +567,7 @@ function chargeCTA(list){
   const auto=SERVER?!!(robo.info&&robo.info.ligado&&robo.info.zapi):roboOn()&&S.settings.autoSend;
   const pendReal=pend.filter(l=>!l.sample&&!(client(l.clientId)||{}).sample);
   if(auto&&pendReal.length)return '<div class="cta"><div><b>Envio automático ligado</b><span>'+(late?"O robô está mandando as cobranças agora, uma a cada 2 minutos. ":"O robô cobra sozinho às "+ct+". ")+pendReal.length+(pendReal.length>1?" clientes na fila.":" cliente na fila.")+'</span></div>'+
-   '<button class="btn ghost" data-act="queue">Cobrar agora pelo meu celular</button></div>';
+   '<button class="btn ghost" data-act="queue">'+(viaApi()?"Cobrar agora":"Cobrar agora pelo meu celular")+'</button></div>';
   if(!pend.length)return '<div class="cta done"><div><b>Cobranças de hoje enviadas</b><span>Você cobrou os '+list.length+(list.length>1?" clientes":" cliente")+' de hoje.</span></div></div>';
   return '<div class="cta'+(late?" go":"")+'"><div><b>'+(late?"Hora de cobrar":"Cobrança marcada para "+ct)+'</b><span>'+pend.length+(pend.length>1?" clientes esperando":" cliente esperando")+' a mensagem de hoje.</span></div>'+
    '<button class="btn wa" data-act="queue">'+I.wa+'Cobrar todos ('+pend.length+')</button></div>';
@@ -580,16 +580,16 @@ function startQueue(){
   showQueue();
 }
 function showQueue(){
-  if(qi>=Q.length){closeSheet();render();toast("Pronto! Todas as cobranças de hoje foram abertas.");return}
+  if(qi>=Q.length){closeSheet();render();toast("Pronto! Todas as cobranças de hoje foram "+(viaApi()?"enviadas.":"abertas."));return}
   const l=S.loans.find(x=>x.id===Q[qi]);if(!l){qi++;return showQueue()}
   const c=client(l.clientId)||{name:"?"},lf=lateFee(l);
   sheet('<div class="qhead"><span>Cobrança '+(qi+1)+' de '+Q.length+'</span><div class="bar"><i style="width:'+(qi/Q.length*100)+'%"></i></div></div>'+
    '<h3 style="display:flex;align-items:center;gap:8px">'+esc(c.name)+scoreBadge(c.id,"sm")+'</h3>'+
    '<div class="calc num'+(lf?" warn":"")+'"><span>'+(lf?"Total com multa":"Valor da parcela")+'</span><b class="tot">'+brl(parcel(l)+lf)+'</b><span>Situação</span><b>'+statusChip(l)+'</b></div>'+
    '<div class="f"><label for="m-txt">Mensagem (pode editar antes de enviar)</label><textarea id="m-txt" data-l="'+l.id+'" rows="9" style="min-height:200px">'+esc(waText(l))+'</textarea></div>'+
-   '<a class="btn wa block" id="m-send" href="'+waLink(l)+'" target="_blank" rel="noopener" data-qsend="'+l.id+'">'+I.wa+'Abrir WhatsApp e enviar</a>'+
+   sendBtn(l,waText(l),"qsend","Abrir WhatsApp e enviar")+
    '<div class="acts" style="margin-top:8px"><button class="btn ghost" data-close-btn>Parar</button><button class="btn ghost" data-act="qskip">Pular</button></div>'+
-   '<p class="hint" style="font-size:12px;color:var(--muted);margin:10px 0 0">Depois de enviar no WhatsApp, volte para o CashDay que o próximo cliente já vai estar aqui.</p>');
+   (viaApi()?'':'<p class="hint" style="font-size:12px;color:var(--muted);margin:10px 0 0">Depois de enviar no WhatsApp, volte para o CashDay que o próximo cliente já vai estar aqui.</p>'));
 }
 
 /* ---------- tela Hoje ---------- */
@@ -655,10 +655,29 @@ function chargeForm(lid){
   const l=S.loans.find(x=>x.id===lid),c=client(l.clientId)||{name:"?"},txt=waText(l);
   sheet('<h3 style="display:flex;align-items:center;gap:8px">Cobrar '+esc(c.name.replace(/\s*\(exemplo\)/,""))+scoreBadge(c.id,"sm")+'</h3>'+
    '<div class="f"><label for="m-txt">Mensagem (pode editar antes de enviar)</label><textarea id="m-txt" data-l="'+lid+'" rows="10" style="min-height:220px">'+esc(txt)+'</textarea></div>'+
-   '<a class="btn wa block" id="m-send" href="'+waHref(l,txt)+'" target="_blank" rel="noopener" data-wa="'+lid+'">'+I.wa+'Enviar no WhatsApp</a>'+
+   sendBtn(l,txt,"wa","Enviar no WhatsApp")+
    '<div class="acts" style="margin-top:8px"><button class="btn ghost" data-close-btn>Cancelar</button><button class="btn ghost" data-act="msgReset">Voltar ao texto padrão</button></div>');
 }
-const waLink=l=>waHref(l,waText(l));
+// no endereço do Railway a cobrança sai direto pelo WhatsApp conectado da conta (Evolution), sem abrir o link
+const viaApi=()=>SERVER&&cloudOn();
+function sendBtn(l,txt,kind,label){
+  if(!viaApi())return '<a class="btn wa block" id="m-send" href="'+waHref(l,txt)+'" target="_blank" rel="noopener" data-'+kind+'="'+l.id+'">'+I.wa+label+'</a>';
+  const w=robo.info&&robo.info.whats;
+  if(w&&w.estado!=="open")return '<div class="note">'+(w.servidor?"O WhatsApp desta conta não está conectado.":"A Evolution não está configurada no servidor.")+'</div>'+
+   (w.servidor?'<button class="btn pri block" data-act="whatsQr">Conectar pelo QR Code</button>':'');
+  return '<button class="btn wa block" id="m-send" data-apisend="'+l.id+'"'+(kind==="qsend"?' data-q="1"':'')+'>'+I.wa+'Enviar no WhatsApp</button>';
+}
+async function apiSend(b){
+  const l=S.loans.find(x=>x.id===b.dataset.apisend),c=l&&client(l.clientId);if(!l||!c||b.disabled)return;
+  const txt=$("#m-txt").value.trim();if(!txt){toast("Escreva a mensagem");return}
+  if(String(c.phone||"").replace(/\D/g,"").length<10){toast("Esse cliente está sem WhatsApp com DDD");return}
+  const old=b.innerHTML;b.disabled=true;b.textContent="Enviando...";
+  try{
+    await cloudFetch("/api/whats/enviar",{method:"POST",body:{loanId:l.id,nome:c.name,phone:c.phone,text:txt}});
+    l.chargedOn=today();save();toast("Mensagem enviada para "+c.name.split(" ")[0]);
+    if(b.dataset.q){qi++;showQueue()}else{closeSheet();render()}
+  }catch(e){b.disabled=false;b.innerHTML=old;toast("Não enviou: "+(e.message||e))}
+}
 
 /* ---------- clientes ---------- */
 function vClientes(){
@@ -1005,6 +1024,7 @@ document.addEventListener("click",e=>{
   if(b.dataset.open){closeSheet();go({tab:"clientes",client:b.dataset.open});return}
   if(b.dataset.pay){payForm(b.dataset.pay);return}
   if(b.dataset.charge){chargeForm(b.dataset.charge);return}
+  if(b.dataset.apisend){apiSend(b);return}
   if(b.dataset.wa||b.dataset.qsend){const l=S.loans.find(x=>x.id===(b.dataset.wa||b.dataset.qsend));if(l){l.chargedOn=today();save()}
     if(b.dataset.qsend){qi++;setTimeout(showQueue,400)}else setTimeout(()=>{closeSheet();render()},400);return}
   const seg=b.parentElement&&b.parentElement.classList.contains("seg")?b.parentElement:null;
@@ -1021,7 +1041,7 @@ document.addEventListener("click",e=>{
   else if(a==="newLoan")loanForm(b.dataset.c);
   else if(a==="undo")undo(b.dataset.p);
   else if(a==="queue")startQueue();
-  else if(a==="msgReset"){const m=$("#m-txt"),l=S.loans.find(x=>x.id===m.dataset.l);m.value=waText(l);$("#m-send").href=waHref(l,m.value)}
+  else if(a==="msgReset"){const m=$("#m-txt"),l=S.loans.find(x=>x.id===m.dataset.l),s=$("#m-send");m.value=waText(l);if(s&&s.tagName==="A")s.href=waHref(l,m.value)}
   else if(a==="saveMsg"){S.settings.msg={late:$("#t-late").value,today:$("#t-today").value,before:$("#t-before").value};save();toast("Mensagens salvas")}
   else if(a==="resetMsg"){S.settings.msg=null;save();render();toast("Mensagens voltaram ao padrão")}
   else if(a==="qskip"){qi++;showQueue()}
@@ -1091,7 +1111,7 @@ document.addEventListener("click",e=>{
 });
 document.addEventListener("input",e=>{
   const id=e.target.id;
-  if(id==="m-txt"){const l=S.loans.find(x=>x.id===e.target.dataset.l);if(l)$("#m-send").href=waHref(l,e.target.value);return}
+  if(id==="m-txt"){const l=S.loans.find(x=>x.id===e.target.dataset.l),s=$("#m-send");if(l&&s&&s.tagName==="A")s.href=waHref(l,e.target.value);return}
   if(id==="q"){view.q=e.target.value;const q=view.q.toLowerCase();
     const list=S.clients.filter(c=>!q||c.name.toLowerCase().includes(q)||String(c.phone).includes(q)||String(c.cpf||"").includes(q.replace(/\D/g,"")||"#")).sort((a,b)=>a.name.localeCompare(b.name,"pt-BR"));
     $("#clist").innerHTML=list.length?list.map(cliRow).join(""):'<div class="empty">Nenhum cliente com esse nome.</div>'}

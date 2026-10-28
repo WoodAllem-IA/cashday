@@ -30,3 +30,7 @@ Cada conta (o administrador e cada usuário) tem a própria instância na Evolut
 em Ajustes > WhatsApp e envio automático, toque em **Conectar pelo QR Code** e leia o código no celular
 (WhatsApp > Aparelhos conectados > Conectar aparelho). A instância é criada sozinha na primeira vez, com o nome
 `cashday-<usuário>`. O robô cobra os clientes de cada conta pelo WhatsApp dela, e espera enquanto ele estiver desconectado.
+
+Com o WhatsApp conectado, os botões **Cobrar** e **Cobrar todos** continuam abrindo a mensagem para editar, mas
+**Enviar no WhatsApp** manda direto pela Evolution, sem abrir o link do WhatsApp. O cliente cobrado assim não
+recebe de novo do robô no mesmo dia.
