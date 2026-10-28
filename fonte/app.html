@@ -286,9 +286,10 @@ async function pullCloud(){
   if(!cloudOn()||busy)return;
   if(dirty)return pushCloud();
   try{
-    const j=await cloudFetch("/api/estado");
+    const j=await cloudFetch("/api/estado"),initial=!ready;
     if(!ready){ready=true;C.versao=0;if(!j.dados&&!$("#layer").innerHTML)render()}
-    if(j.ok&&j.dados&&j.versao>(C.versao||0)){S=Object.assign(blank(),j.dados,{robot:S.robot});C.versao=j.versao;saveC();
+    if(j.ok&&j.dados&&j.versao>(C.versao||0)){const had=new Set(S.clients.map(c=>c.id)),first=initial;S=Object.assign(blank(),j.dados,{robot:S.robot});
+      if(!first){const nv=S.clients.filter(c=>c.viaLink&&!had.has(c.id));if(nv.length)setTimeout(()=>toast(nv.length>1?nv.length+" novos cadastros pelo link":"Novo cadastro pelo link: "+nv[0].name),50)}C.versao=j.versao;saveC();
       keep();if(!$("#layer").innerHTML)render()}
     cloud={state:"ok",err:"",at:new Date()};
   }catch(e){cloud={state:"err",err:String(e.message||e),at:cloud.at};if(!ready)render()}
@@ -700,6 +701,7 @@ function vClientes(){
    '<div class="sec" style="margin-top:4px"><h2>Clientes</h2><span>'+S.clients.length+' no total</span></div>'+
    '<input class="search" id="q" type="search" placeholder="Buscar por nome, telefone ou CPF" autocomplete="off">'+
    '<button class="btn sec2 block" data-act="newClient" style="margin-bottom:12px">'+I.plus.replace('stroke-width="2.6"','stroke-width="2.6" width="18" height="18"')+'Novo cliente</button>'+
+   (SERVER?'<button class="btn ghost block" data-act="inviteLink" style="margin:-4px 0 12px">Mandar link para o cliente se cadastrar</button>':'')+
    '<div class="list" id="clist">'+(list.length?list.map(cliRow).join(""):'<div class="empty">Nenhum cliente'+(q?' com esse nome':'')+'. Toque em Novo cliente para começar.</div>')+'</div>';
 }
 function cliRow(c){
@@ -710,6 +712,19 @@ function cliRow(c){
   return '<button class="cli" data-open="'+c.id+'">'+scoreBadge(c.id,"big")+'<div class="info"><b>'+esc(c.name)+'</b><span class="num">'+(ls.length?"Deve "+brl(owed):"Nada em aberto")+'</span></div>'+chip+I.chev+'</button>';
 }
 
+const saudacao=()=>{const h=new Date().getHours();return h<5?"Boa noite":h<12?"Bom dia":h<18?"Boa tarde":"Boa noite"};
+const idade=b=>{const d=parse(b),t=new Date();let a=t.getFullYear()-d.getFullYear();if(t.getMonth()<d.getMonth()||(t.getMonth()===d.getMonth()&&t.getDate()<d.getDate()))a--;return a};
+/* ---------- link para o cliente se cadastrar sozinho ---------- */
+function inviteLink(){
+  toast("Criando link...");
+  cloudFetch("/api/convites",{method:"POST",body:{}}).then(j=>{
+    const link=location.origin+"/c/"+j.token,txt=saudacao()+"! Para fazer seu cadastro, toque no link e preencha seus dados. Vai pedir uma foto sua.\n"+link;
+    sheet('<h3>Link de cadastro</h3><p class="hint" style="font-size:13px;color:var(--muted)">O cliente preenche nome, CPF, nascimento, WhatsApp, endereço e tira uma foto. Quando ele enviar, o cadastro aparece sozinho na sua lista. O link vale para 1 cadastro, por '+j.dias+' dias.</p>'+
+      '<div class="note" style="overflow-wrap:anywhere;font-size:14px">'+esc(link)+'</div>'+
+      '<div class="list"><a class="btn pri block" href="https://wa.me/?text='+encodeURIComponent(txt)+'" target="_blank" rel="noopener">Mandar pelo WhatsApp</a>'+
+      '<button class="btn sec2 block" data-act="copyInvite" data-l="'+esc(link)+'">Copiar link</button></div>');
+  },e=>toast("Não criou o link: "+e.message));
+}
 function vCliente(id){
   const c=client(id);if(!c){view.client=null;return vClientes()}
   const ls=S.loans.filter(l=>l.clientId===id).sort((a,b)=>(a.status==="aberto"?0:1)-(b.status==="aberto"?0:1)||b.createdAt.localeCompare(a.createdAt));
@@ -717,7 +732,8 @@ function vCliente(id){
   const paidTot=ps.reduce((s,p)=>s+p.amount,0),lateCount=ps.filter(p=>p.lateDays>0).length;
   return '<button class="back" data-back>'+I.back+'Clientes</button>'+
    '<div class="hero"><h2>'+esc(c.name)+'</h2>'+scoreBar(id)+'<div class="grid2 num"><span>WhatsApp</span><b>'+esc(fmtPhone(c.phone))+'</b><span>CPF</span><b>'+esc(c.cpf?fmtCPF(c.cpf):"Não informado")+'</b>'+
-   '<span>Endereço</span><b style="overflow-wrap:anywhere">'+esc(c.address||"Não informado")+'</b></div>'+(c.notes?'<div class="note">'+esc(c.notes)+'</div>':'')+
+   (c.birth?'<span>Nascimento</span><b>'+esc(fmtD(c.birth))+' ('+idade(c.birth)+' anos)</b>':'')+
+   '<span>Endereço</span><b style="overflow-wrap:anywhere">'+esc(c.address||"Não informado")+'</b></div>'+(c.viaLink?'<div class="hint" style="font-size:13px;color:var(--muted)">O próprio cliente fez este cadastro pelo link.</div>':'')+(c.notes?'<div class="note">'+esc(c.notes)+'</div>':'')+
    '<div class="flabel">Fotos e documentos</div>'+filesStrip("client",id,c.files)+
    '<div class="acts"><button class="btn pri" data-act="newLoan" data-c="'+id+'">'+I.plus.replace('stroke-width="2.6"','stroke-width="2.6" width="18" height="18"')+'Emprestar</button><button class="btn ghost" data-act="editClient" data-c="'+id+'">Editar</button></div></div>'+
    sec("Empréstimos",ls.length?String(ls.length):"")+
@@ -1089,6 +1105,8 @@ document.addEventListener("click",e=>{
     const owner=k==="client"?client(oid):S.loans.find(x=>x.id===oid);if(owner){owner.files=(owner.files||[]).filter(f=>f.id!==fid);save()}
     cloudFetch("/api/arquivos/"+fid,{method:"DELETE"}).catch(()=>{});toast("Arquivo apagado")})}
   else if(a==="roboRefresh"){syncRobot(true)}
+  else if(a==="inviteLink")inviteLink();
+  else if(a==="copyInvite"){const l=b.dataset.l;(navigator.clipboard?navigator.clipboard.writeText(l):Promise.reject()).then(()=>toast("Link copiado"),()=>toast("Segure o link acima para copiar"))}
   else if(a==="reload")location.reload();
   else if(a==="admList"){loadUsers().then(admList)}
   else if(a==="admNew")admNew();

@@ -48,3 +48,7 @@ em Ajustes > WhatsApp e envio automático, toque em **Conectar pelo QR Code** e 
 Com o WhatsApp conectado, os botões **Cobrar** e **Cobrar todos** continuam abrindo a mensagem para editar, mas
 **Enviar no WhatsApp** manda direto pela Evolution, sem abrir o link do WhatsApp. O cliente cobrado assim não
 recebe de novo do robô no mesmo dia.
+
+## Cadastro pelo link
+
+Em Clientes, o botão "Mandar link para o cliente se cadastrar" cria um link de uso único (vale 7 dias), no formato `/c/<código>`. O cliente abre, tira uma foto na hora e preenche nome completo, CPF, nascimento, WhatsApp, CEP e endereço (todos obrigatórios). O cadastro entra direto na conta de quem mandou o link, com a foto em "Fotos e documentos".
