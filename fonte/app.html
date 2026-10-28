@@ -402,19 +402,53 @@ function admNew(){
    '<button class="btn pri block" data-act="admSave">Cadastrar</button>');
 }
 function envCard(){
-  const i=robo.state==="ok"?robo.info:null,row=(k,v)=>'<div class="num" style="font-size:14px"><b style="color:var(--ink)">'+k+'</b>: '+v+'</div>';
-  return '<div class="card"><h3>Cobrança e envio automático</h3><div class="note" style="background:transparent;padding:0">Essas opções vêm das variáveis do Railway (cashday &gt; Variables). Para mudar, edite lá e espere o servidor reiniciar.</div>'+
-   (i?'<div class="note">'+row("HORARIO_COBRANCA",esc(i.horario||"09:00"))+row("ENVIO_AUTOMATICO",i.ligado?"sim":"não")+row("WHATSAPP_TESTE",i.teste?"configurado":"não configurado")+row("Evolution",i.zapi?"configurada":'<span style="color:var(--late)">falta EVOLUTION_URL, EVOLUTION_APIKEY ou EVOLUTION_INSTANCIA</span>')+'</div>':'')+
+  const i=robo.state==="ok"?robo.info:null,s=S.settings,fx=(i&&i.fixo)||{},hint=t=>'<span class="hint" style="font-size:12px;color:var(--muted)">'+t+'</span>';
+  return '<div class="card"><h3>WhatsApp e envio automático</h3><div class="note" style="background:transparent;padding:0">Cada conta conecta o próprio WhatsApp e o robô cobra só os clientes dela.</div>'+
+   (i?whatsHTML(i.whats):'')+
+   '<div class="f" style="margin:0"><label for="s-time">Horário da cobrança</label><input id="s-time" type="time" value="'+esc((i&&i.horario)||s.chargeTime||"09:00")+'"'+(fx.horario?" disabled":"")+'>'+(fx.horario?hint("Definido por HORARIO_COBRANCA no Railway."):"")+'</div>'+
+   '<label class="opt" style="margin:0"><input type="checkbox" id="s-auto"'+((i?i.ligado:s.autoSend)?" checked":"")+(fx.envio?" disabled":"")+'><span>Mandar as cobranças sozinho no horário</span></label>'+
+   (fx.envio?hint("Definido por ENVIO_AUTOMATICO no Railway"+(isAdm()?": apague essa variável para cada conta ligar e desligar o próprio envio.":".")):"")+
+   '<div class="f" style="margin:0"><label for="s-rph">WhatsApp para o teste</label><input id="s-rph" type="tel" inputmode="tel" value="'+esc((S.robot||{}).phone||"")+'" placeholder="'+(i&&i.teste?"vazio: usa o de WHATSAPP_TESTE":"com DDD")+'"></div>'+
    roboStatusHTML()+
-   '<div class="acts"><button class="btn sec2" data-act="testRobo">Mandar teste</button><button class="btn ghost" data-act="roboRefresh">Atualizar</button></div>'+
-   '<span class="hint" style="font-size:12px;color:var(--muted)">O robô manda uma mensagem a cada 2 minutos, entre o horário e as 21h, e nunca cobra a mesma pessoa duas vezes no dia. O teste vai para o número de WHATSAPP_TESTE.</span></div>';
+   '<div class="acts"><button class="btn pri" data-act="saveEnvio">Salvar</button><button class="btn sec2" data-act="testRobo">Mandar teste</button><button class="btn ghost" data-act="roboRefresh">Atualizar</button></div>'+
+   hint("O robô manda uma mensagem a cada 2 minutos, entre o horário e as 21h, e nunca cobra a mesma pessoa duas vezes no dia. Clientes de exemplo nunca recebem.")+'</div>';
+}
+function whatsHTML(w){
+  if(!w)return "";
+  if(!w.servidor)return '<div class="note" style="color:var(--late)">A Evolution não está configurada no servidor. '+(isAdm()?"Coloque EVOLUTION_URL e EVOLUTION_APIKEY nas variáveis do Railway.":"Fale com o administrador.")+'</div>';
+  if(w.estado==="open")return '<div class="note"><b style="color:var(--ok)">WhatsApp conectado</b>'+(w.nome||w.numero?": "+esc(w.nome||"")+(w.numero?(w.nome?" (":"")+esc(w.numero)+(w.nome?")":""):""):"")+'.</div>'+
+   '<button class="btn ghost block" data-act="whatsOut">Desconectar WhatsApp</button>';
+  return '<div class="note">'+(w.estado==="erro"?'<span style="color:var(--late)">Não consegui falar com a Evolution: '+esc(w.erro||"")+'</span>':'<b style="color:var(--ink)">WhatsApp não conectado.</b> Conecte o WhatsApp que vai mandar as cobranças desta conta.')+'</div>'+
+   '<button class="btn pri block" data-act="whatsQr">Conectar pelo QR Code</button>';
+}
+/* QR Code: pede um novo a cada 25 s (o do WhatsApp vence) e confere a conexão a cada 3 s */
+let qrT=null;
+function qrSheet(){
+  sheet('<h3>Conectar WhatsApp</h3><ol class="hint" style="font-size:13px;color:var(--muted);margin:0;padding-left:20px"><li>No celular, abra o <b>WhatsApp</b>.</li><li>Toque em <b>Configurações</b> (ou nos três pontinhos) e em <b>Aparelhos conectados</b>.</li><li>Toque em <b>Conectar aparelho</b> e aponte a câmera para o código.</li></ol>'+
+   '<div id="qr-box" class="note" style="text-align:center;min-height:120px;display:flex;align-items:center;justify-content:center">Gerando o QR Code...</div>');
+  clearTimeout(qrT);const ini=Date.now();let ult=0;
+  const passo=async()=>{
+    if(!$("#qr-box"))return;
+    try{
+      let j;
+      if(Date.now()-ult>25000){j=await cloudFetch("/api/whats/conectar",{method:"POST",body:{}});ult=Date.now();
+        const box=$("#qr-box");if(!box)return;
+        if(j.estado!=="open")box.innerHTML=j.qr?'<img src="'+esc(j.qr)+'" alt="QR Code para conectar o WhatsApp" style="display:block;width:100%;max-width:280px;margin:0 auto;background:#fff;border-radius:12px;padding:8px">':"A Evolution ainda não mandou o QR Code. Esperando...";}
+      else j=await cloudFetch("/api/whats/status");
+      if(!$("#qr-box"))return;
+      if(j.estado==="open"){closeSheet();toast("WhatsApp conectado");syncRobot();return}
+    }catch(e){const box=$("#qr-box");if(box)box.innerHTML='<div>Não deu certo: '+esc(e.message||e)+'<div class="acts" style="justify-content:center"><button class="btn pri" data-act="whatsQr">Tentar de novo</button></div></div>';return}
+    if(Date.now()-ini>180000){$("#qr-box").innerHTML='<div>O QR Code venceu.<div class="acts" style="justify-content:center"><button class="btn pri" data-act="whatsQr">Gerar outro QR Code</button></div></div>';return}
+    qrT=setTimeout(passo,3000);
+  };
+  passo();
 }
 function roboStatusHTML(){
   if(!roboOn())return '<div class="note">Preencha o endereço e a senha do robô para conectar.</div>';
   if(robo.state==="err")return '<div class="note" style="color:var(--late)">Não consegui falar com o robô: '+esc(robo.err)+'</div>';
   if(robo.state!=="ok")return '<div class="note">Conectando ao robô...</div>';
   const i=robo.info,log=(i.log||[]).slice(0,6);
-  return '<div class="note"><b style="color:var(--ink)">Robô conectado.</b> '+(i.zapi?"WhatsApp configurado"+(i.envio?" ("+esc(i.envio)+")":"")+". ":'<span style="color:var(--late)">Falta configurar a Evolution no robô.</span> ')+
+  return '<div class="note">'+(i.whats?"":'<b style="color:var(--ink)">Robô conectado.</b> '+(i.zapi?"WhatsApp configurado"+(i.envio?" ("+esc(i.envio)+")":"")+". ":'<span style="color:var(--late)">Falta configurar a Evolution no robô.</span> '))+
    (i.ligado?"Envio automático ligado às "+esc(i.horario)+".":"Envio automático desligado.")+' Hoje: '+Object.keys(i.enviadosHoje||{}).length+' enviadas, '+i.pendentes+' na fila.'+
    (log.length?'<div style="margin-top:8px">'+log.map(x=>'<div class="num" style="font-size:13px">'+esc(x.at.slice(11,16))+' '+esc(fmtD(x.date))+' · '+esc(x.name)+' · '+(x.ok?'<span style="color:var(--ok)">enviada</span>':'<span style="color:var(--late)">erro: '+esc(x.error||"")+'</span>')+'</div>').join("")+'</div>':'')+'</div>';
 }
@@ -530,7 +564,7 @@ const chargedToday=l=>l.chargedOn===today();
 function chargeCTA(list){
   if(!list.length)return "";
   const pend=list.filter(l=>!chargedToday(l)),ct=S.settings.chargeTime||"09:00",late=nowHM()>=ct;
-  const auto=roboOn()&&S.settings.autoSend;
+  const auto=SERVER?!!(robo.info&&robo.info.ligado&&robo.info.zapi):roboOn()&&S.settings.autoSend;
   const pendReal=pend.filter(l=>!l.sample&&!(client(l.clientId)||{}).sample);
   if(auto&&pendReal.length)return '<div class="cta"><div><b>Envio automático ligado</b><span>'+(late?"O robô está mandando as cobranças agora, uma a cada 2 minutos. ":"O robô cobra sozinho às "+ct+". ")+pendReal.length+(pendReal.length>1?" clientes na fila.":" cliente na fila.")+'</span></div>'+
    '<button class="btn ghost" data-act="queue">Cobrar agora pelo meu celular</button></div>';
@@ -801,7 +835,7 @@ function vAjustes(){
    '<div class="f" style="margin:0"><label for="t-today">Quando vence hoje</label><textarea id="t-today" style="min-height:150px">'+esc(msgTpl("today"))+'</textarea></div>'+
    '<div class="f" style="margin:0"><label for="t-before">Antes do vencimento</label><textarea id="t-before" style="min-height:100px">'+esc(msgTpl("before"))+'</textarea></div>'+
    '<div class="acts"><button class="btn pri" data-act="saveMsg">Salvar mensagens</button><button class="btn ghost" data-act="resetMsg">Voltar ao padrão</button></div></div>'+
-  (SERVER&&isAdm()?envCard():'<div class="card"><h3>Horário da cobrança</h3><div class="f" style="margin:0"><label for="s-time">Que horas você quer cobrar os clientes?</label><input id="s-time" type="time" value="'+esc(s.chargeTime||"09:00")+'"><span class="hint">A partir desse horário a tela Hoje mostra o botão "Cobrar todos".</span></div>'+
+  (SERVER?envCard():'<div class="card"><h3>Horário da cobrança</h3><div class="f" style="margin:0"><label for="s-time">Que horas você quer cobrar os clientes?</label><input id="s-time" type="time" value="'+esc(s.chargeTime||"09:00")+'"><span class="hint">A partir desse horário a tela Hoje mostra o botão "Cobrar todos".</span></div>'+
    '<button class="btn pri" data-act="saveTime">Salvar horário</button></div>'+(SERVER?'':
   '<div class="card"><h3>Envio automático pelo WhatsApp</h3>'+
    '<label class="opt" style="margin:0"><input type="checkbox" id="s-auto"'+(s.autoSend?" checked":"")+'><span>Mandar as cobranças sozinho no horário</span></label>'+
@@ -1036,7 +1070,13 @@ document.addEventListener("click",e=>{
   else if(a==="admPwSave"){cloudFetch("/api/usuarios/"+b.dataset.u,{method:"PUT",body:{senha:$("#u-npw").value}}).then(j=>{if(!j.ok)throw new Error(j.erro);closeSheet();toast("Senha trocada. Passe a nova senha para a pessoa.")},e=>toast(e.message))}
   else if(a==="admBlock"){const u=(USERS||[]).find(x=>x.id==b.dataset.u);if(!u)return;
     cloudFetch("/api/usuarios/"+u.id,{method:"PUT",body:{ativo:!u.ativo}}).then(j=>{if(!j.ok)throw new Error(j.erro);toast(u.ativo?u.nome+" bloqueado":u.nome+" desbloqueado");return loadUsers()}).then(admList,e=>toast(e.message))}
-  else if(a==="testRobo"&&SERVER){roboCall("/teste",{}).then(()=>toast("Teste enviado. Olhe seu WhatsApp."),e=>toast("Teste falhou: "+e.message))}
+  else if(a==="whatsQr"){qrSheet()}
+  else if(a==="whatsOut"){confirmSheet("Desconectar o WhatsApp?","O robô para de mandar as cobranças desta conta até você conectar de novo pelo QR Code.","Desconectar",()=>{
+    cloudFetch("/api/whats/desconectar",{method:"POST",body:{}}).then(()=>{toast("WhatsApp desconectado");syncRobot()},e=>toast("Não desconectou: "+e.message))})}
+  else if(a==="saveEnvio"){const t=$("#s-time"),au=$("#s-auto");if(!t.disabled)S.settings.chargeTime=t.value||"09:00";if(!au.disabled)S.settings.autoSend=au.checked;
+    S.robot=Object.assign({},S.robot,{phone:$("#s-rph").value.replace(/\D/g,"")});save();toast("Salvo")}
+  else if(a==="testRobo"&&SERVER){const ph=$("#s-rph").value.replace(/\D/g,"");if(ph){S.robot=Object.assign({},S.robot,{phone:ph});save()}
+    roboCall("/teste",{phone:ph}).then(()=>toast("Teste enviado. Olhe seu WhatsApp."),e=>toast("Teste falhou: "+e.message))}
   else if(a==="testRobo"){const ph=$("#s-rph").value.replace(/\D/g,"");if(!roboOn()){toast("Salve o endereço e a senha primeiro");return}if(ph.length<10){toast("Coloque seu WhatsApp com DDD");return}
     S.robot.phone=ph;keep();
     roboCall("/teste",{phone:ph}).then(()=>toast("Teste enviado. Olhe seu WhatsApp."),e=>toast("Teste falhou: "+e.message))}
