@@ -87,6 +87,14 @@ a{color:var(--accent)}
 .acts{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .btn{display:flex;align-items:center;justify-content:center;gap:6px;min-height:44px;padding:0 14px;border-radius:12px;font-weight:700;font-size:15px;text-decoration:none}
 .btn.pri{background:var(--accent);color:var(--accent-ink)}
+.invite{display:flex;align-items:center;gap:12px;width:100%;text-align:left;font:inherit;cursor:pointer;border:0;border-radius:16px;padding:14px 16px;margin:0 0 14px;
+  background:var(--accent);color:var(--accent-ink);box-shadow:0 6px 18px color-mix(in srgb,var(--accent) 35%,transparent)}
+.invite .ico{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;flex:none;background:color-mix(in srgb,var(--accent-ink) 18%,transparent)}
+.invite .txt{flex:1;display:flex;flex-direction:column;gap:2px}
+.invite b{font-family:var(--display);font-size:17px;font-weight:800;line-height:1.2}
+.invite small{font-size:13px;opacity:.85}
+.invite svg:last-child{flex:none;opacity:.8}
+.invite:active{transform:scale(.98)}
 .btn.sec2{background:var(--accent-soft);color:var(--accent)}
 .btn.ghost{background:var(--bg);color:var(--ink)}
 .btn.danger{background:var(--late-soft);color:var(--late)}
@@ -701,7 +709,8 @@ function vClientes(){
    '<div class="sec" style="margin-top:4px"><h2>Clientes</h2><span>'+S.clients.length+' no total</span></div>'+
    '<input class="search" id="q" type="search" placeholder="Buscar por nome, telefone ou CPF" autocomplete="off">'+
    '<button class="btn sec2 block" data-act="newClient" style="margin-bottom:12px">'+I.plus.replace('stroke-width="2.6"','stroke-width="2.6" width="18" height="18"')+'Novo cliente</button>'+
-   (SERVER?'<button class="btn ghost block" data-act="inviteLink" style="margin:-4px 0 12px">Mandar link para o cliente se cadastrar</button>':'')+
+   (SERVER?'<button class="invite" data-act="inviteLink"><span class="ico"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a4.5 4.5 0 0 0 6.4 0l3.2-3.2a4.5 4.5 0 0 0-6.4-6.4L12 5.6"/><path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3.2 3.2a4.5 4.5 0 0 0 6.4 6.4L12 18.4"/></svg></span>'+
+    '<span class="txt"><b>Mandar link para o cliente se cadastrar</b><small>Ele preenche os dados e tira a foto sozinho</small></span>'+I.chev+'</button>':'')+
    '<div class="list" id="clist">'+(list.length?list.map(cliRow).join(""):'<div class="empty">Nenhum cliente'+(q?' com esse nome':'')+'. Toque em Novo cliente para começar.</div>')+'</div>';
 }
 function cliRow(c){
