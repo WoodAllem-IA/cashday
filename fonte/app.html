@@ -310,6 +310,10 @@ function cloudCard(){
    '<div class="f" style="margin:0"><label for="n-pw">Senha (APP_SENHA)</label><input id="n-pw" type="password" autocomplete="current-password"></div>'+
    (cloud.state==="err"?'<div class="note" style="color:var(--late)">'+esc(cloud.err)+'</div>':'')+
    '<button class="btn pri" data-act="cloudIn">Conectar</button></div>';
+  if(SERVER)return '<div class="card"><h3>Sua conta</h3>'+(C.user?'<div class="num" style="font-size:14px">Você entrou como <b>'+esc(C.user.nome)+'</b> ('+esc(C.user.login)+')</div>':'')+
+   '<div class="note">'+(cloud.state==="err"?'<span style="color:var(--late)">Sem conexão com o banco de dados.</span> Tento salvar de novo sozinho.':'Tudo é salvo direto no banco de dados, na hora. Um backup automático é feito a cada hora.')+'</div>'+
+   '<div class="acts"><button class="btn ghost" data-act="cloudBackups">Backups</button></div>'+
+   '<button class="link" data-act="cloudOut" style="align-self:flex-start;color:var(--muted)">Sair deste aparelho</button></div>';
   const when=cloud.at?cloud.at.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}):"-";
   return '<div class="card"><h3>'+(SERVER?'Sua conta':'Nuvem (Railway)')+'</h3>'+(SERVER&&C.user?'<div class="num" style="font-size:14px">Você entrou como <b>'+esc(C.user.nome)+'</b> ('+esc(C.user.login)+')</div>':'')+'<div class="note">'+(cloud.state==="err"?'<span style="color:var(--late)">Sem conexão: '+esc(cloud.err)+'</span> Suas mudanças ficam no celular e sobem quando a conexão voltar.':'<b style="color:var(--ink)">Conectado.</b> Tudo salvo na nuvem. Última sincronização: '+when+'.')+
    (SERVER?'':'<div style="font-size:12px;margin-top:4px;overflow-wrap:anywhere">'+esc(C.url)+'</div>')+'</div>'+
@@ -811,8 +815,8 @@ function vAjustes(){
   '<div class="card"><h3>Aviso no iPhone nesse horário</h3><div class="note" style="background:transparent;padding:0">Para o iPhone te avisar todo dia na hora da cobrança. Leva 1 minuto:<ol>'+
    '<li>Abra o app <b>Atalhos</b> e toque em <b>Automação</b>.</li><li>Toque em <b>+</b>, escolha <b>Horário do Dia</b>, coloque <b>'+esc(s.chargeTime||"09:00")+'</b> e <b>Diariamente</b>. Marque <b>Executar Imediatamente</b>.</li>'+
    '<li>Adicione a ação <b>Mostrar Notificação</b> com o texto "Hora de cobrar: abra o CashDay".</li></ol></div></div>'+
-  '<div class="card"><h3>Cópia de segurança</h3><div class="note" style="background:transparent;padding:0">Os dados ficam guardados neste celular'+(cloudOn()?' e na nuvem, com backup automático':'')+'. Copie o backup de vez em quando e mande para você mesmo no WhatsApp ou cole numa nota.</div>'+
-   '<div class="acts"><button class="btn sec2" data-act="copyBackup">Copiar backup</button><button class="btn ghost" data-act="restore">Restaurar</button></div></div>'+
+  (SERVER?'':'<div class="card"><h3>Cópia de segurança</h3><div class="note" style="background:transparent;padding:0">Os dados ficam guardados neste celular'+(cloudOn()?' e na nuvem, com backup automático':'')+'. Copie o backup de vez em quando e mande para você mesmo no WhatsApp ou cole numa nota.</div>'+
+   '<div class="acts"><button class="btn sec2" data-act="copyBackup">Copiar backup</button><button class="btn ghost" data-act="restore">Restaurar</button></div></div>')+
   '<div class="card"><h3>Apagar tudo</h3><button class="btn danger" data-act="wipe">Apagar todos os dados</button></div>';
 }
 
