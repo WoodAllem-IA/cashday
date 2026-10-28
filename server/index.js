@@ -6,8 +6,9 @@
 //   ADMIN_USUARIO        usuário do administrador (padrão: admin)
 //   APP_SENHA            senha do administrador
 //   EVOLUTION_URL        endereço da Evolution (opcional, para o envio automático)
-//   EVOLUTION_APIKEY     chave da Evolution
-//   EVOLUTION_INSTANCIA  nome da instância (ex.: cashday)
+//   EVOLUTION_APIKEY     chave global da Evolution (AUTHENTICATION_API_KEY)
+//   EVOLUTION_INSTANCIA  (opcional) instância já conectada que o administrador continua usando
+// Cada conta tem a própria instância na Evolution e conecta o WhatsApp dela pelo QR Code no app.
 import http from "node:http";
 import crypto from "node:crypto";
 import fs from "node:fs/promises";
@@ -40,6 +41,9 @@ async function migrate() {
       ativo boolean not null default true, criado timestamptz not null default now(), ultimo_acesso timestamptz);
     alter table backups add column if not exists usuario int not null default 1;
     alter table arquivos add column if not exists usuario int not null default 1;
+    alter table usuarios add column if not exists instancia text;
+    alter table enviados add column if not exists usuario int not null default 1;
+    alter table envio_log add column if not exists usuario int not null default 1;
   `);
   // o administrador vem das variáveis do Railway (ADMIN_USUARIO e APP_SENHA)
   await db.query(`insert into usuarios (id, login, nome, admin) values ($1, $2, 'Administrador', true)
@@ -92,57 +96,137 @@ async function backup(uid, dados, motivo, force) {
   await db.query("delete from backups where usuario=$1 and id not in (select id from backups where usuario=$1 order by id desc limit $2)", [uid, BACKUPS_KEEP]);
 }
 
-/* ---------- robô (mesma regra do robô do Cloudflare) ----------
-   O WhatsApp da Evolution é do administrador, então o robô só cobra os clientes dele.
-   Os outros usuários cobram pelo botão "Cobrar", que abre o WhatsApp do próprio celular. */
-const evoOk = () => !!(process.env.EVOLUTION_URL && process.env.EVOLUTION_APIKEY && process.env.EVOLUTION_INSTANCIA);
-// mesmo envio do robô do Cloudflare, usando as variáveis do Railway
-const enviar = (phone, text) => sendWhats(process.env, phone, text);
-// horário, envio automático e número do teste vêm das variáveis do Railway
+/* ---------- WhatsApp de cada conta (Evolution API) ----------
+   Cada conta tem a própria instância na Evolution, criada na primeira vez que
+   ela toca em "Conectar pelo QR Code". O endereço e a chave global são do Railway. */
 const env = k => (process.env[k] || "").trim();
+const evoUrl = () => env("EVOLUTION_URL").replace(/\/+$/, "");
+const evoOk = () => !!(evoUrl() && env("EVOLUTION_APIKEY"));
+async function evo(method, p, body) {
+  const r = await fetch(evoUrl() + p, {
+    method, headers: { "Content-Type": "application/json", apikey: env("EVOLUTION_APIKEY") },
+    body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(20e3)
+  });
+  const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch {}
+  return { ok: r.ok, status: r.status, j: j || {}, t };
+}
+const evoErro = (r, o) => new Error(`A Evolution respondeu ${r.status} ao ${o}: ${String((r.j.response && r.j.response.message) || r.j.message || r.t).slice(0, 200)}`);
+// o administrador continua com a instância de EVOLUTION_INSTANCIA, se ela existir
+const instanciaDe = u => u.instancia || (u.id === ADMIN_ID ? env("EVOLUTION_INSTANCIA") : "") || "";
+const nomeInstancia = u => ("cashday-" + u.login).replace(/[^a-z0-9_-]/gi, "-").slice(0, 60);
+async function estadoWhats(inst) {
+  if (!inst || !evoOk()) return "sem instância";
+  const r = await evo("GET", "/instance/connectionState/" + encodeURIComponent(inst));
+  if (r.status === 404) return "sem instância";
+  if (!r.ok) throw evoErro(r, "ver a conexão");
+  return (r.j.instance && r.j.instance.state) || r.j.state || "close"; // open, connecting ou close
+}
+async function perfilWhats(inst) {
+  try {
+    const r = await evo("GET", "/instance/fetchInstances?instanceName=" + encodeURIComponent(inst));
+    const i = [].concat(r.j || [])[0] || {}, v1 = i.instance || {}; // v2 traz os campos direto; v1 dentro de "instance"
+    return { numero: String(i.ownerJid || v1.owner || "").split("@")[0], nome: i.profileName || v1.profileName || "" };
+  } catch { return {}; }
+}
+async function criarInstancia(u) {
+  const instanceName = nomeInstancia(u);
+  let r = await evo("POST", "/instance/create", { instanceName, qrcode: true, integration: "WHATSAPP-BAILEYS" });
+  if (r.status === 400 && !/in use|já existe/i.test(r.t)) r = await evo("POST", "/instance/create", { instanceName, qrcode: true }); // v1
+  if (!r.ok && !/in use|já existe/i.test(r.t)) throw evoErro(r, "criar a instância");
+  await db.query("update usuarios set instancia=$2 where id=$1", [u.id, instanceName]);
+  u.instancia = instanceName;
+  return instanceName;
+}
+async function whatsStatus(u) {
+  const inst = instanciaDe(u);
+  const w = { servidor: evoOk(), instancia: inst || null, estado: "sem instância" };
+  if (!w.servidor || !inst) return w;
+  try { w.estado = await estadoWhats(inst); } catch (e) { w.estado = "erro"; w.erro = e.message; }
+  if (w.estado === "open") Object.assign(w, await perfilWhats(inst));
+  return w;
+}
+// pede o QR Code; cria a instância se a conta ainda não tem (ou se ela sumiu da Evolution)
+async function conectarWhats(u) {
+  if (!evoOk()) throw new Error("Falta configurar EVOLUTION_URL e EVOLUTION_APIKEY no Railway");
+  let inst = instanciaDe(u);
+  if (!inst || (await estadoWhats(inst)) === "sem instância") inst = await criarInstancia(u);
+  const r = await evo("GET", "/instance/connect/" + encodeURIComponent(inst));
+  if (!r.ok) throw evoErro(r, "gerar o QR Code");
+  const st = (r.j.instance && r.j.instance.state) || r.j.state;
+  if (st === "open") return { estado: "open" };
+  let qr = r.j.base64 || (r.j.qrcode && r.j.qrcode.base64) || "";
+  if (qr && !qr.startsWith("data:")) qr = "data:image/png;base64," + qr;
+  return { estado: "connecting", qr, codigo: r.j.pairingCode || null };
+}
+async function desconectarWhats(u) {
+  const inst = instanciaDe(u);
+  if (!inst || !evoOk()) return;
+  const r = await evo("DELETE", "/instance/logout/" + encodeURIComponent(inst));
+  if (!r.ok && r.status !== 404 && !/not connected|não está conectad/i.test(r.t)) throw evoErro(r, "desconectar");
+}
+
+/* ---------- robô (mesma regra do robô do Cloudflare) ----------
+   Cada conta cobra os próprios clientes pelo WhatsApp que ela conectou. */
+const enviar = (inst, phone, text) => sendWhats({ ...process.env, EVOLUTION_INSTANCIA: inst }, phone, text);
+// horário e envio automático: as variáveis do Railway, se existirem, valem para todas as contas;
+// sem elas, cada conta escolhe em Ajustes. WHATSAPP_TESTE é o número do administrador.
 const sim = v => /^(sim|s|true|1|ligado|on|yes)$/i.test(v);
-function config(dados) {
+const horarioEnv = () => { const h = env("HORARIO_COBRANCA"); return /^\d{1,2}:\d{2}$/.test(h) ? h.padStart(5, "0") : ""; };
+function config(dados, u) {
   const st = (dados && dados.settings) || {};
-  const h = env("HORARIO_COBRANCA");
   return {
-    horario: /^\d{1,2}:\d{2}$/.test(h) ? h.padStart(5, "0") : st.chargeTime || "09:00",
+    horario: horarioEnv() || st.chargeTime || "09:00",
     ligado: env("ENVIO_AUTOMATICO") ? sim(env("ENVIO_AUTOMATICO")) : !!st.autoSend,
-    teste: env("WHATSAPP_TESTE").replace(/\D/g, "")
+    teste: u.id === ADMIN_ID ? env("WHATSAPP_TESTE").replace(/\D/g, "") : ""
   };
 }
-async function rodada() {
-  const { dados } = await getEstado();
-  const cfg = config(dados);
-  if (!dados || !cfg.ligado || !evoOk()) return "desligado";
+async function rodadaDe(u) {
+  const inst = instanciaDe(u);
+  if (!inst || !evoOk()) return "sem WhatsApp";
+  const { dados } = await getEstado(u.id);
+  const cfg = config(dados, u);
+  if (!dados || !cfg.ligado) return "desligado";
   const { date, hm } = nowBR();
   if (hm < cfg.horario) return "antes do horário";
   if (hm >= "21:00") return "muito tarde";
-  const sent = Object.fromEntries((await db.query("select loan_id from enviados where dia=$1", [date])).rows.map(r => [r.loan_id, true]));
+  const sent = Object.fromEntries((await db.query("select loan_id from enviados where dia=$1 and usuario=$2", [date, u.id])).rows.map(r => [r.loan_id, true]));
   const list = pending(dados, sent, date);
   if (!list.length) return "nada pendente";
+  // WhatsApp desconectado: espera, em vez de gastar a cobrança do dia com erro
+  if ((await estadoWhats(inst)) !== "open") return "WhatsApp desconectado";
   const { l, c } = list[0];
-  const ins = await db.query("insert into enviados (dia, loan_id) values ($1,$2) on conflict do nothing returning loan_id", [date, l.id]);
+  const ins = await db.query("insert into enviados (dia, loan_id, usuario) values ($1,$2,$3) on conflict do nothing returning loan_id", [date, l.id, u.id]);
   if (!ins.rowCount) return "já enviado";
   try {
-    await enviar(c.phone, message(l, c, date, { ...dados.settings, chargeTime: cfg.horario }));
-    await db.query("insert into envio_log (dia, loan_id, nome, ok) values ($1,$2,$3,true)", [date, l.id, c.name]);
+    await enviar(inst, c.phone, message(l, c, date, { ...dados.settings, chargeTime: cfg.horario }));
+    await db.query("insert into envio_log (dia, loan_id, nome, ok, usuario) values ($1,$2,$3,true,$4)", [date, l.id, c.name, u.id]);
     return "enviado para " + c.name;
   } catch (e) {
-    await db.query("insert into envio_log (dia, loan_id, nome, ok, erro) values ($1,$2,$3,false,$4)", [date, l.id, c.name, String(e.message || e).slice(0, 300)]);
+    await db.query("insert into envio_log (dia, loan_id, nome, ok, erro, usuario) values ($1,$2,$3,false,$4,$5)", [date, l.id, c.name, String(e.message || e).slice(0, 300), u.id]);
     return "erro: " + e.message;
   }
 }
-async function roboStatus() {
+// uma mensagem por conta a cada rodada
+async function rodada() {
+  if (!evoOk()) return [];
+  const us = (await db.query("select * from usuarios where ativo")).rows.filter(instanciaDe);
+  const out = [];
+  for (const u of us) out.push([u.login, await rodadaDe(u).catch(e => "erro: " + e.message)]);
+  return out;
+}
+async function roboStatus(u) {
   const { date, hm } = nowBR();
-  const { dados } = await getEstado();
-  const cfg = config(dados);
-  const sentRows = (await db.query("select loan_id, em from enviados where dia=$1", [date])).rows;
+  const { dados } = await getEstado(u.id);
+  const cfg = config(dados, u);
+  const whats = await whatsStatus(u);
+  const sentRows = (await db.query("select loan_id, em from enviados where dia=$1 and usuario=$2", [date, u.id])).rows;
   const sent = Object.fromEntries(sentRows.map(r => [r.loan_id, r.em]));
-  const log = (await db.query("select em, dia, nome, ok, erro from envio_log order by id desc limit 30")).rows
+  const log = (await db.query("select em, dia, nome, ok, erro from envio_log where usuario=$1 order by id desc limit 30", [u.id])).rows
     .map(r => ({ at: new Date(r.em).toISOString(), date: r.dia, name: r.nome, ok: r.ok, error: r.erro }));
   return {
-    ok: true, agora: date + " " + hm, zapi: evoOk(), envio: evoOk() ? "Evolution" : null,
+    ok: true, agora: date + " " + hm, zapi: whats.estado === "open", envio: "Evolution", whats,
     ligado: cfg.ligado, horario: cfg.horario, teste: !!cfg.teste,
+    fixo: { horario: !!horarioEnv(), envio: !!env("ENVIO_AUTOMATICO") },
     pendentes: dados ? pending(dados, sent, date).length : 0, enviadosHoje: sent, log
   };
 }
@@ -265,14 +349,18 @@ async function api(req, res, url) {
     res.writeHead(200, { ...CORS, "Content-Type": r.rows[0].tipo, "Cache-Control": "private, max-age=86400", "Content-Disposition": `inline; filename="${encodeURIComponent(r.rows[0].nome)}"` });
     return res.end(r.rows[0].dados);
   }
-  if (p.startsWith("/api/robo/") && !eu.admin) return send(res, 200, { ok: true, soAdmin: true, ligado: false, enviadosHoje: {}, pendentes: 0, log: [] });
-  if (p === "/api/robo/status") return send(res, 200, await roboStatus());
-  if (p === "/api/robo/rodar" && req.method === "POST") return send(res, 200, { ok: true, resultado: await rodada() });
+  /* ---------- WhatsApp e robô: cada conta usa o próprio WhatsApp ---------- */
+  if (p === "/api/whats/status") return send(res, 200, { ok: true, ...(await whatsStatus(eu)) });
+  if (p === "/api/whats/conectar" && req.method === "POST") return send(res, 200, { ok: true, ...(await conectarWhats(eu)) });
+  if (p === "/api/whats/desconectar" && req.method === "POST") { await desconectarWhats(eu); return send(res, 200, { ok: true }); }
+  if (p === "/api/robo/status") return send(res, 200, await roboStatus(eu));
+  if (p === "/api/robo/rodar" && req.method === "POST") return send(res, 200, { ok: true, resultado: await rodadaDe(eu) });
   if (p === "/api/robo/teste" && req.method === "POST") {
-    const phone = config((await getEstado()).dados).teste || String((await readBody(req, 1e4)).phone || "").replace(/\D/g, "");
-    if (!phone) return send(res, 400, { ok: false, erro: "Falta configurar WHATSAPP_TESTE no Railway" });
-    if (!evoOk()) return send(res, 400, { ok: false, erro: "Falta configurar a Evolution no Railway" });
-    await enviar(phone, "Teste do CashDay: o envio automático está funcionando.");
+    const phone = String((await readBody(req, 1e4)).phone || "").replace(/\D/g, "") || config((await getEstado(uid)).dados, eu).teste;
+    if (phone.length < 10) return send(res, 400, { ok: false, erro: "Coloque o WhatsApp com DDD para o teste" });
+    if (!evoOk()) return send(res, 400, { ok: false, erro: "Falta configurar EVOLUTION_URL e EVOLUTION_APIKEY no Railway" });
+    if ((await estadoWhats(instanciaDe(eu))) !== "open") return send(res, 400, { ok: false, erro: "Conecte o WhatsApp pelo QR Code primeiro" });
+    await enviar(instanciaDe(eu), phone, "Teste do CashDay: o envio automático está funcionando.");
     return send(res, 200, { ok: true });
   }
   return send(res, 404, { ok: false, erro: "Caminho desconhecido" });
@@ -299,6 +387,6 @@ const server = http.createServer(async (req, res) => {
 
 if (process.env.DATABASE_URL) {
   await migrate();
-  setInterval(() => rodada().then(r => { if (r.startsWith("enviado") || r.startsWith("erro")) console.log("robô:", r); }).catch(e => console.error("robô:", e)), 120e3);
+  setInterval(() => rodada().then(rs => rs.forEach(([login, r]) => { if (r.startsWith("enviado") || r.startsWith("erro")) console.log("robô (" + login + "):", r); })).catch(e => console.error("robô:", e)), 120e3);
 } else console.warn("Sem DATABASE_URL: adicione o Postgres no Railway.");
 server.listen(PORT, () => console.log("CashDay no ar na porta " + PORT));
