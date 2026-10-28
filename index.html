@@ -300,11 +300,14 @@ async function pullCloud(){
   }catch(e){cloud={state:"err",err:String(e.message||e),at:cloud.at}}
 }
 const onlySamples=d=>!(d.clients||[]).some(c=>!c.sample);
-async function cloudConnect(url,senha){
+async function cloudConnect(url,senha,usuario){
   url=url.trim().replace(/\/+$/,"");if(!/^https?:\/\//.test(url))url="https://"+url;
-  C={url};const j=await cloudFetch("/api/login",{method:"POST",body:{senha}});
+  const dono=C.dono;C={url};const j=await cloudFetch("/api/login",{method:"POST",body:{usuario:usuario||"",senha}});
   if(!j.ok)throw new Error(j.erro||"Não entrou");
-  C.token=j.token;C.versao=0;saveC();
+  const u=j.usuario||{id:1,admin:true};
+  // outro usuário neste aparelho: não mistura os dados de um com os do outro
+  if(dono&&dono!==u.id){S=blank();try{localStorage.setItem(KEY,JSON.stringify(S))}catch(x){}}
+  C.token=j.token;C.versao=0;C.user=u;C.dono=u.id;C.login=u.login;saveC();
   const e=await cloudFetch("/api/estado");
   if(!e.dados){const r=await cloudFetch("/api/estado",{method:"PUT",body:{base:0,dados:S}});C.versao=r.versao;saveC();cloud={state:"ok",err:"",at:new Date()};return "subiu"}
   if(onlySamples(S)){S=Object.assign(blank(),e.dados,{robot:S.robot});C.versao=e.versao;saveC();try{localStorage.setItem(KEY,JSON.stringify(S))}catch(x){}cloud={state:"ok",err:"",at:new Date()};return "baixou"}
@@ -317,7 +320,7 @@ function cloudCard(){
    (cloud.state==="err"?'<div class="note" style="color:var(--late)">'+esc(cloud.err)+'</div>':'')+
    '<button class="btn pri" data-act="cloudIn">Conectar</button></div>';
   const when=cloud.at?cloud.at.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}):"-";
-  return '<div class="card"><h3>Nuvem (Railway)</h3><div class="note">'+(cloud.state==="err"?'<span style="color:var(--late)">Sem conexão: '+esc(cloud.err)+'</span> Suas mudanças ficam no celular e sobem quando a conexão voltar.':'<b style="color:var(--ink)">Conectado.</b> Tudo salvo na nuvem. Última sincronização: '+when+'.')+
+  return '<div class="card"><h3>'+(SERVER?'Sua conta':'Nuvem (Railway)')+'</h3>'+(SERVER&&C.user?'<div class="num" style="font-size:14px">Você entrou como <b>'+esc(C.user.nome)+'</b> ('+esc(C.user.login)+')</div>':'')+'<div class="note">'+(cloud.state==="err"?'<span style="color:var(--late)">Sem conexão: '+esc(cloud.err)+'</span> Suas mudanças ficam no celular e sobem quando a conexão voltar.':'<b style="color:var(--ink)">Conectado.</b> Tudo salvo na nuvem. Última sincronização: '+when+'.')+
    (SERVER?'':'<div style="font-size:12px;margin-top:4px;overflow-wrap:anywhere">'+esc(C.url)+'</div>')+'</div>'+
    '<div class="acts"><button class="btn sec2" data-act="cloudSync">Sincronizar agora</button><button class="btn ghost" data-act="cloudBackups">Backups da nuvem</button></div>'+
    (SERVER?'<button class="link" data-act="cloudOut" style="align-self:flex-start;color:var(--muted)">Sair deste aparelho</button></div>':'<button class="link" data-act="cloudOut" style="align-self:flex-start;color:var(--muted)">Desconectar este aparelho</button></div>');
@@ -378,6 +381,30 @@ async function syncRobot(showToast){
     if(showToast)toast("Robô conectado");
   }catch(e){robo={state:"err",info:null,err:String(e.message||e)};if(showToast)toast("Não conectou: "+robo.err)}
   if(!$("#layer").innerHTML&&(view.tab==="hoje"||view.tab==="ajustes"))render();
+}
+/* ---------- administrador: usuários ---------- */
+const isAdm=()=>SERVER&&cloudOn()&&!!(C.user&&C.user.admin);
+let USERS=null;
+function loadUsers(){if(!isAdm())return Promise.resolve();return cloudFetch("/api/usuarios").then(j=>{USERS=j.usuarios||[];if(view.tab==="ajustes"&&!$("#layer").innerHTML)render()},()=>{})}
+function admCard(){
+  const n=USERS?USERS.filter(u=>!u.admin):null,at=n?n.filter(u=>u.ativo).length:0;
+  return '<div class="card"><h3>Administração</h3><div class="num" style="font-size:15px">'+(n?'<b>'+n.length+'</b> '+(n.length===1?'usuário cadastrado':'usuários cadastrados')+(n.length?' · '+at+' '+(at===1?'ativo':'ativos'):''):'Carregando usuários...')+'</div>'+
+   '<div class="acts"><button class="btn pri" data-act="admNew">Cadastrar usuário</button><button class="btn sec2" data-act="admList">Ver usuários</button></div></div>';
+}
+const quando=t=>{if(!t)return "nunca entrou";const d=new Date(t);return d.toLocaleDateString("pt-BR")+" "+d.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})};
+function admList(){
+  const list=(USERS||[]).filter(u=>!u.admin);
+  sheet('<h3>Usuários</h3>'+(list.length?'<div class="list">'+list.map(u=>'<div class="card" style="margin:0"><div><b>'+esc(u.nome)+'</b>'+(u.ativo?'':' <span style="color:var(--late)">(bloqueado)</span>')+'</div>'+
+    '<div class="num" style="font-size:13px;color:var(--muted)">Usuário: '+esc(u.login)+' · '+u.clientes+' clientes · '+u.emprestimos+' empréstimos<br>Último acesso: '+esc(quando(u.ultimo_acesso))+'</div>'+
+    '<div class="acts"><button class="btn sec2" data-act="admPw" data-u="'+u.id+'">Trocar senha</button><button class="btn ghost" data-act="admBlock" data-u="'+u.id+'">'+(u.ativo?'Bloquear':'Desbloquear')+'</button></div></div>').join("")+'</div>'
+    :'<p class="note">Nenhum usuário ainda.</p>')+'<button class="btn pri block" data-act="admNew">Cadastrar usuário</button>');
+}
+function admNew(){
+  sheet('<h3>Cadastrar usuário</h3><p class="hint" style="font-size:13px;color:var(--muted)">A pessoa entra no CashDay só com o usuário e a senha. Cada um vê apenas os próprios clientes.</p>'+
+   '<div class="f"><label for="u-nome">Nome</label><input id="u-nome" autocomplete="off"></div>'+
+   '<div class="f"><label for="u-login">Usuário (para entrar)</label><input id="u-login" autocapitalize="off" autocorrect="off" autocomplete="off" placeholder="ex.: joao"></div>'+
+   '<div class="f"><label for="u-pw">Senha (mínimo 6)</label><input id="u-pw" type="text" autocapitalize="off" autocorrect="off" autocomplete="new-password"></div>'+
+   '<button class="btn pri block" data-act="admSave">Cadastrar</button>');
 }
 function envCard(){
   const i=robo.state==="ok"?robo.info:null,row=(k,v)=>'<div class="num" style="font-size:14px"><b style="color:var(--ink)">'+k+'</b>: '+v+'</div>';
@@ -476,7 +503,8 @@ function renderTabs(){
 const tabBtn=(id,label,ico,on)=>'<button class="tab" data-tab="'+id+'"'+(on?' aria-current="page"':'')+'>'+ico+label+'</button>';
 
 function vEntrar(){
-  return header()+'<div class="card"><h3>Entrar</h3><div class="note" style="background:transparent;padding:0">Digite a senha do CashDay (a mesma da variável APP_SENHA do Railway). Só precisa fazer isso uma vez neste aparelho.</div>'+
+  return header().replace(/<div class="banner">[\s\S]*$/,"")+'<div class="card"><h3>Entrar</h3><div class="note" style="background:transparent;padding:0">Digite seu usuário e senha. Só precisa fazer isso uma vez neste aparelho.</div>'+
+   '<div class="f" style="margin:0"><label for="n-user">Usuário</label><input id="n-user" autocapitalize="off" autocorrect="off" autocomplete="username" value="'+esc(C.login||"")+'"></div>'+
    '<div class="f" style="margin:0"><label for="n-pw">Senha</label><input id="n-pw" type="password" autocomplete="current-password"></div>'+
    (cloud.state==="err"?'<div class="note" style="color:var(--late)">'+esc(cloud.err)+'</div>':'')+
    '<button class="btn pri" data-act="cloudIn">Entrar</button></div>';
@@ -761,7 +789,7 @@ const kpi=(l,v,s,tone)=>'<div class="kpi'+(tone?" "+tone:"")+'"><small>'+l+'</sm
 /* ---------- ajustes ---------- */
 function vAjustes(){
   const s=S.settings;
-  return header()+
+  return header()+(isAdm()?admCard():'')+
   '<div class="card"><h3>Padrão para novos empréstimos</h3>'+
    '<div class="two"><div class="f"><label for="s-pct">Porcentagem (%)</label><input id="s-pct" type="number" inputmode="decimal" step="0.1" value="'+s.pct+'"></div>'+
    '<div class="f"><label for="s-n">Parcelas</label><input id="s-n" type="number" inputmode="numeric" min="1" value="'+s.n+'"></div></div>'+
@@ -775,8 +803,8 @@ function vAjustes(){
    '<div class="f" style="margin:0"><label for="t-today">Quando vence hoje</label><textarea id="t-today" style="min-height:150px">'+esc(msgTpl("today"))+'</textarea></div>'+
    '<div class="f" style="margin:0"><label for="t-before">Antes do vencimento</label><textarea id="t-before" style="min-height:100px">'+esc(msgTpl("before"))+'</textarea></div>'+
    '<div class="acts"><button class="btn pri" data-act="saveMsg">Salvar mensagens</button><button class="btn ghost" data-act="resetMsg">Voltar ao padrão</button></div></div>'+
-  (SERVER?envCard():'<div class="card"><h3>Horário da cobrança</h3><div class="f" style="margin:0"><label for="s-time">Que horas você quer cobrar os clientes?</label><input id="s-time" type="time" value="'+esc(s.chargeTime||"09:00")+'"><span class="hint">A partir desse horário a tela Hoje mostra o botão "Cobrar todos".</span></div>'+
-   '<button class="btn pri" data-act="saveTime">Salvar horário</button></div>'+
+  (SERVER&&isAdm()?envCard():'<div class="card"><h3>Horário da cobrança</h3><div class="f" style="margin:0"><label for="s-time">Que horas você quer cobrar os clientes?</label><input id="s-time" type="time" value="'+esc(s.chargeTime||"09:00")+'"><span class="hint">A partir desse horário a tela Hoje mostra o botão "Cobrar todos".</span></div>'+
+   '<button class="btn pri" data-act="saveTime">Salvar horário</button></div>'+(SERVER?'':
   '<div class="card"><h3>Envio automático pelo WhatsApp</h3>'+
    '<label class="opt" style="margin:0"><input type="checkbox" id="s-auto"'+(s.autoSend?" checked":"")+'><span>Mandar as cobranças sozinho no horário</span></label>'+
    (cloudOn()?'<span class="hint" style="font-size:13px;color:var(--muted)">O robô roda no seu servidor do Railway e manda pela Evolution.</span>':
@@ -785,7 +813,7 @@ function vAjustes(){
    '<div class="f" style="margin:0"><label for="s-rph">Seu WhatsApp (para o teste)</label><input id="s-rph" type="tel" inputmode="tel" value="'+esc((S.robot||{}).phone||"")+'"></div>'+
    roboStatusHTML()+
    '<div class="acts"><button class="btn pri" data-act="saveRobo">Salvar e conectar</button><button class="btn sec2" data-act="testRobo">Mandar teste</button></div>'+
-   '<span class="hint" style="font-size:12px;color:var(--muted)">O robô manda uma mensagem a cada 2 minutos, entre o horário escolhido e as 21h, e nunca cobra a mesma pessoa duas vezes no dia. Clientes de exemplo nunca recebem.</span></div>')+
+   '<span class="hint" style="font-size:12px;color:var(--muted)">O robô manda uma mensagem a cada 2 minutos, entre o horário escolhido e as 21h, e nunca cobra a mesma pessoa duas vezes no dia. Clientes de exemplo nunca recebem.</span></div>'))+
   '<div class="card"><h3>Aviso no iPhone nesse horário</h3><div class="note" style="background:transparent;padding:0">Para o iPhone te avisar todo dia na hora da cobrança. Leva 1 minuto:<ol>'+
    '<li>Abra o app <b>Atalhos</b> e toque em <b>Automação</b>.</li><li>Toque em <b>+</b>, escolha <b>Horário do Dia</b>, coloque <b>'+esc(s.chargeTime||"09:00")+'</b> e <b>Diariamente</b>. Marque <b>Executar Imediatamente</b>.</li>'+
    '<li>Adicione a ação <b>Mostrar Notificação</b> com o texto "Hora de cobrar: abra o CashDay".</li></ol></div></div>'+
@@ -974,19 +1002,21 @@ document.addEventListener("click",e=>{
     S.clients=S.clients.filter(x=>!x.sample);S.loans=S.loans.filter(x=>!x.sample);S.payments=S.payments.filter(x=>!x.sample);S.sample=false;save();view={tab:view.tab};toast("Exemplos apagados")})}
   else if(a==="saveRobo"){S.robot=cloudOn()?Object.assign({},S.robot,{phone:$("#s-rph").value.replace(/\D/g,"")}):{url:$("#s-rurl").value.trim(),pw:$("#s-rpw").value,phone:$("#s-rph").value.replace(/\D/g,"")};S.settings.autoSend=$("#s-auto").checked;
     save();robo.state="sync";render();setTimeout(()=>syncRobot(true),cloudOn()?2500:0)}
-  else if(a==="cloudIn"){const url=SERVER?location.origin:$("#n-url").value,pw=$("#n-pw").value;if(!url||!pw){toast(SERVER?"Digite a senha":"Preencha o endereço e a senha");return}
+  else if(a==="cloudIn"){const url=SERVER?location.origin:$("#n-url").value,pw=$("#n-pw").value,us=SERVER?$("#n-user").value.trim():"";if(!url||!pw||(SERVER&&!us)){toast(SERVER?"Digite o usuário e a senha":"Preencha o endereço e a senha");return}
     cloud={state:"sync",err:"",at:null};toast("Conectando...");
-    cloudConnect(url,pw).then(r=>{
+    cloudConnect(url,pw,us).then(r=>{if(isAdm())loadUsers();
       if(r==="subiu"){toast("Pronto! Seus dados subiram para a nuvem.");render();syncRobot()}
       else if(r==="baixou"){toast("Pronto! Dados da nuvem carregados.");go({tab:"hoje"});syncRobot()}
       else{const e=r.escolher;sheet('<h3>Já existem dados na nuvem</h3><p class="note">A nuvem tem '+(e.dados.clients||[]).length+' clientes. Este celular tem '+S.clients.length+'. Qual você quer manter?</p>'+
         '<div class="list"><button class="btn pri block" data-act="cloudUseRemote" data-v="'+e.versao+'">Usar os dados da nuvem</button><button class="btn ghost block" data-act="cloudUseLocal">Juntar com os deste celular</button></div>');
         window.__cloudRemote=e}
-    },err=>{C={url:url};saveC();cloud={state:"err",err:String(err.message||err),at:null};render();toast("Não conectou: "+cloud.err)})}
+    },err=>{C={url:url,dono:C.dono,login:us||C.login};saveC();cloud={state:"err",err:String(err.message||err),at:null};render();toast("Não conectou: "+cloud.err)})}
   else if(a==="cloudUseRemote"){const e=window.__cloudRemote;S=Object.assign(blank(),e.dados,{robot:S.robot});C.versao=e.versao;saveC();try{localStorage.setItem(KEY,JSON.stringify(S))}catch(x){}
     cloud={state:"ok",err:"",at:new Date()};closeSheet();go({tab:"hoje"});toast("Dados da nuvem carregados")}
   else if(a==="cloudUseLocal"){const e=window.__cloudRemote;S=mergeState(e.dados,S);C.versao=e.versao;saveC();closeSheet();save();go({tab:"hoje"});toast("Dados juntados e salvos na nuvem")}
   else if(a==="cloudSync"){toast("Sincronizando...");(dirty?pushCloud():pullCloud()).then(()=>{render();toast(cloud.state==="ok"?"Tudo sincronizado":"Sem conexão: "+cloud.err)})}
+  else if(a==="cloudOut"&&SERVER){confirmSheet("Sair desta conta?","Seus dados continuam guardados na nuvem. Para voltar, é só entrar com seu usuário e senha.","Sair",()=>{
+    try{localStorage.removeItem(KEY)}catch(e){}C={url:C.url,login:C.login};saveC();location.reload()})}
   else if(a==="cloudOut"){confirmSheet("Desconectar este aparelho?","Os dados continuam neste celular e na nuvem. Só para de sincronizar.","Desconectar",()=>{C={url:C.url};saveC();cloud={state:"off",err:"",at:null};toast("Desconectado")})}
   else if(a==="cloudBackups"){cloudFetch("/api/backups").then(j=>{sheet('<h3>Backups da nuvem</h3><p class="hint" style="font-size:13px;color:var(--muted)">Um por hora, mais um antes de cada troca grande.</p><div class="hist">'+
       (j.backups||[]).map(b=>'<div class="hrow"><div class="l"><b>'+new Date(b.criado).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})+'</b><span>'+esc(b.motivo||"")+' · '+(b.clientes||0)+' clientes</span></div><div class="r"><button class="link" style="color:var(--accent)" data-act="cloudRestore" data-b="'+b.id+'">Restaurar</button></div></div>').join("")+
@@ -997,6 +1027,16 @@ document.addEventListener("click",e=>{
     const owner=k==="client"?client(oid):S.loans.find(x=>x.id===oid);if(owner){owner.files=(owner.files||[]).filter(f=>f.id!==fid);save()}
     cloudFetch("/api/arquivos/"+fid,{method:"DELETE"}).catch(()=>{});toast("Arquivo apagado")})}
   else if(a==="roboRefresh"){syncRobot(true)}
+  else if(a==="admList"){loadUsers().then(admList)}
+  else if(a==="admNew")admNew();
+  else if(a==="admSave"){const body={nome:$("#u-nome").value.trim(),login:$("#u-login").value.trim().toLowerCase(),senha:$("#u-pw").value};
+    if(!body.nome||!body.login||!body.senha){toast("Preencha nome, usuário e senha");return}
+    cloudFetch("/api/usuarios",{method:"POST",body}).then(j=>{if(!j.ok)throw new Error(j.erro);closeSheet();toast("Usuário "+body.login+" cadastrado");loadUsers()},e=>toast(e.message))}
+  else if(a==="admPw"){const u=(USERS||[]).find(x=>x.id==b.dataset.u);if(!u)return;
+    sheet('<h3>Nova senha para '+esc(u.nome)+'</h3><div class="f"><label for="u-npw">Nova senha (mínimo 6)</label><input id="u-npw" type="text" autocapitalize="off" autocorrect="off" autocomplete="new-password"></div><button class="btn pri block" data-act="admPwSave" data-u="'+u.id+'">Salvar senha</button>')}
+  else if(a==="admPwSave"){cloudFetch("/api/usuarios/"+b.dataset.u,{method:"PUT",body:{senha:$("#u-npw").value}}).then(j=>{if(!j.ok)throw new Error(j.erro);closeSheet();toast("Senha trocada. Passe a nova senha para a pessoa.")},e=>toast(e.message))}
+  else if(a==="admBlock"){const u=(USERS||[]).find(x=>x.id==b.dataset.u);if(!u)return;
+    cloudFetch("/api/usuarios/"+u.id,{method:"PUT",body:{ativo:!u.ativo}}).then(j=>{if(!j.ok)throw new Error(j.erro);toast(u.ativo?u.nome+" bloqueado":u.nome+" desbloqueado");return loadUsers()}).then(admList,e=>toast(e.message))}
   else if(a==="testRobo"&&SERVER){roboCall("/teste",{}).then(()=>toast("Teste enviado. Olhe seu WhatsApp."),e=>toast("Teste falhou: "+e.message))}
   else if(a==="testRobo"){const ph=$("#s-rph").value.replace(/\D/g,"");if(!roboOn()){toast("Salve o endereço e a senha primeiro");return}if(ph.length<10){toast("Coloque seu WhatsApp com DDD");return}
     S.robot.phone=ph;try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}
@@ -1031,6 +1071,7 @@ document.addEventListener("keydown",e=>{if(e.key==="Escape")closeSheet()});
 document.addEventListener("visibilitychange",()=>{if(!document.hidden){if(cloudOn())pullCloud();if(roboOn())syncRobot();if(!$("#layer").innerHTML)render()}});
 
 try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}render();syncRobot();if(cloudOn())pullCloud();
+if(SERVER&&cloudOn())cloudFetch("/api/eu").then(j=>{if(j.usuario){C.user=j.usuario;C.dono=j.usuario.id;saveC();loadUsers();render()}}).catch(()=>{});
 setInterval(()=>{if(cloudOn()&&!document.hidden)pullCloud()},60000);
 setInterval(()=>{if(view.tab==="hoje"&&!$("#layer").innerHTML&&!document.hidden)render()},60000);
 try{if("serviceWorker" in navigator&&window.CASHDAY_STANDALONE)navigator.serviceWorker.register("sw.js")}catch(e){}
