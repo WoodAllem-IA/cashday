@@ -45,6 +45,7 @@ async function migrate() {
     alter table usuarios add column if not exists instancia text;
     alter table enviados add column if not exists usuario int not null default 1;
     alter table envio_log add column if not exists usuario int not null default 1;
+    create table if not exists convites (token text primary key, usuario int not null, criado timestamptz not null default now(), usado timestamptz, cliente text);
   `);
   // o administrador vem das variáveis do Railway (ADMIN_USUARIO e APP_SENHA)
   // nome do administrador para a saudação: variável ADMIN_NOME
@@ -85,6 +86,66 @@ async function login(usuario, senha) {
 const publico = u => ({ id: u.id, login: u.login, nome: u.nome, admin: u.admin });
 
 /* ---------- estado ---------- */
+/* ---------- cadastro pelo link: o cliente preenche sozinho ---------- */
+const CONVITE_DIAS = 7;
+const BLANK = () => ({ clients: [], loans: [], payments: [], settings: { pct: 40, lateType: "fixo", lateValue: 50, freq: "mensal", n: 1, chargeTime: "09:00" } });
+function cpfOk(c) {
+  c = String(c || "").replace(/\D/g, "");
+  if (c.length !== 11 || /^(\d)\1+$/.test(c)) return false;
+  const dv = n => { let s = 0; for (let i = 0; i < n; i++) s += Number(c[i]) * (n + 1 - i); const r = (s * 10) % 11; return r === 10 ? 0 : r; };
+  return dv(9) === Number(c[9]) && dv(10) === Number(c[10]);
+}
+async function conviteValido(token, q = db) {
+  const r = await q.query(`select c.*, u.nome as de, u.ativo from convites c join usuarios u on u.id=c.usuario
+    where c.token=$1 and c.criado > now() - interval '${CONVITE_DIAS} days'`, [token]);
+  const c = r.rows[0];
+  return c && c.ativo && !c.usado ? c : null;
+}
+async function cadastrarPeloLink(token, b) {
+  const t = v => String(v || "").trim();
+  const d = {
+    nome: t(b.nome).replace(/\s+/g, " ").slice(0, 120), cpf: t(b.cpf).replace(/\D/g, ""), nascimento: t(b.nascimento), whatsapp: t(b.whatsapp).replace(/\D/g, ""),
+    cep: t(b.cep).replace(/\D/g, ""), endereco: t(b.endereco).slice(0, 160), numero: t(b.numero).slice(0, 20), complemento: t(b.complemento).slice(0, 60),
+    bairro: t(b.bairro).slice(0, 80), cidade: t(b.cidade).slice(0, 80), uf: t(b.uf).toUpperCase().slice(0, 2)
+  };
+  if (d.nome.split(" ").length < 2) return "Coloque o nome completo";
+  if (!cpfOk(d.cpf)) return "CPF inválido";
+  const nasc = /^\d{4}-\d{2}-\d{2}$/.test(d.nascimento) ? new Date(d.nascimento + "T12:00:00Z") : null;
+  if (!nasc || isNaN(nasc) || nasc.getUTCFullYear() < 1900 || nasc > new Date()) return "Data de nascimento inválida";
+  if (d.whatsapp.length < 10 || d.whatsapp.length > 13) return "WhatsApp inválido";
+  if (d.cep.length !== 8) return "CEP inválido";
+  if (!d.endereco || !d.numero || !d.bairro || !d.cidade || d.uf.length !== 2) return "Preencha o endereço completo";
+  if (!b.aceite) return "É preciso aceitar o uso dos dados";
+  const foto = Buffer.from(String(b.foto || ""), "base64");
+  const jpg = foto[0] === 0xff && foto[1] === 0xd8, png = foto[0] === 0x89 && foto[1] === 0x50;
+  if (foto.length < 3000 || !(jpg || png)) return "Tire a foto para continuar";
+  const client = await db.connect();
+  try {
+    await client.query("begin");
+    await client.query("select token from convites where token=$1 for update", [token]);
+    const cv = await conviteValido(token, client);
+    if (!cv) { await client.query("rollback"); return "Este link já foi usado ou expirou. Peça um novo."; }
+    const uid = cv.usuario, { date } = nowBR();
+    const fid = crypto.randomUUID();
+    await client.query("insert into arquivos (id, nome, tipo, tamanho, dados, usuario) values ($1,$2,$3,$4,$5,$6)",
+      [fid, "Foto do cliente." + (jpg ? "jpg" : "png"), jpg ? "image/jpeg" : "image/png", foto.length, foto, uid]);
+    const cur = (await client.query("select versao, dados from estado where id=$1 for update", [uid])).rows[0];
+    const dados = cur ? cur.dados : BLANK();
+    const id = Date.now().toString(36) + crypto.randomBytes(3).toString("hex");
+    const address = `${d.endereco}, ${d.numero}${d.complemento ? " - " + d.complemento : ""}, ${d.bairro}, ${d.cidade}/${d.uf}, CEP ${d.cep.slice(0, 5)}-${d.cep.slice(5)}`;
+    dados.clients = (dados.clients || []).concat({
+      id, name: d.nome, phone: d.whatsapp, cpf: d.cpf, address, birth: d.nascimento, cep: d.cep, notes: "", createdAt: date, viaLink: true,
+      files: [{ id: fid, name: "Foto do cliente." + (jpg ? "jpg" : "png"), mime: jpg ? "image/jpeg" : "image/png", at: date }]
+    });
+    const nv = (cur ? cur.versao : 0) + 1;
+    await client.query("insert into estado (id, versao, dados, atualizado) values ($3,$1,$2,now()) on conflict (id) do update set versao=$1, dados=$2, atualizado=now()", [nv, dados, uid]);
+    await client.query("update convites set usado=now(), cliente=$2 where token=$1", [token, id]);
+    await client.query("commit");
+    backup(uid, dados, "cadastro pelo link", true).catch(() => {});
+    return null;
+  } catch (e) { await client.query("rollback").catch(() => {}); throw e; } finally { client.release(); }
+}
+
 async function getEstado(uid = ADMIN_ID) {
   const r = await db.query("select versao, dados, atualizado from estado where id=$1", [uid]);
   return r.rows[0] || { versao: 0, dados: null, atualizado: null };
@@ -243,11 +304,23 @@ async function readBody(req, limit) {
   return s ? JSON.parse(s) : {};
 }
 const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".json": "application/json", ".webmanifest": "application/manifest+json", ".png": "image/png" };
-const PUBLIC = new Set(["/index.html", "/admin.html", "/manifest.webmanifest", "/sw.js", "/icon-180.png", "/icon-192.png", "/icon-512.png"]);
+const PUBLIC = new Set(["/index.html", "/admin.html", "/cadastro.html", "/manifest.webmanifest", "/sw.js", "/icon-180.png", "/icon-192.png", "/icon-512.png"]);
 
 async function api(req, res, url) {
   const p = url.pathname;
   if (p === "/api/saude") return send(res, 200, { ok: true, banco: !!process.env.DATABASE_URL, senha: !!SENHA, envio: evoOk() });
+  // cadastro pelo link: aberto, sem login; o link de uso único é a autorização
+  let mc;
+  if ((mc = p.match(/^\/api\/convite\/([\w-]{16,64})$/))) {
+    if (req.method === "GET") {
+      const cv = await conviteValido(mc[1]);
+      return send(res, 200, cv ? { ok: true, valido: true, de: cv.de } : { ok: true, valido: false });
+    }
+    if (req.method === "POST") {
+      const erro = await cadastrarPeloLink(mc[1], await readBody(req, MAX_FILE * 1.4));
+      return send(res, erro ? 400 : 200, erro ? { ok: false, erro } : { ok: true });
+    }
+  }
   if (p === "/api/login" && req.method === "POST") {
     const { usuario, senha } = await readBody(req, 1e4);
     if (!SENHA) return send(res, 500, { ok: false, erro: "Falta configurar APP_SENHA no Railway" });
@@ -343,6 +416,12 @@ async function api(req, res, url) {
     return send(res, 404, { ok: false, erro: "Caminho desconhecido" });
   }
 
+  if (p === "/api/convites" && req.method === "POST") {
+    const token = crypto.randomBytes(18).toString("base64url");
+    await db.query("insert into convites (token, usuario) values ($1,$2)", [token, uid]);
+    return send(res, 200, { ok: true, token, dias: CONVITE_DIAS });
+  }
+
   if (p === "/api/estado" && req.method === "GET") {
     const e = await getEstado(uid);
     return send(res, 200, { ok: true, versao: e.versao, dados: e.dados, atualizado: e.atualizado });
@@ -436,7 +515,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "OPTIONS") { res.writeHead(204, CORS); return res.end(); }
     if (url.pathname.startsWith("/api/")) return await api(req, res, url);
     // o próprio app também fica disponível no endereço do Railway
-    const f = url.pathname === "/" ? "/index.html" : url.pathname.replace(/\/+$/, "") === "/admin" ? "/admin.html" : url.pathname;
+    const f = url.pathname === "/" ? "/index.html" : url.pathname.replace(/\/+$/, "") === "/admin" ? "/admin.html" : /^\/c\/[\w-]+$/.test(url.pathname) ? "/cadastro.html" : url.pathname;
     if (!PUBLIC.has(f)) { res.writeHead(404); return res.end("Não encontrado"); }
     let body = await fs.readFile(path.join(ROOT, f));
     // avisa o app que ele está no servidor: endereço e opções vêm das variáveis do Railway
