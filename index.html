@@ -423,7 +423,7 @@ function envCard(){
   const on=typeof s.autoSend==="boolean"?s.autoSend:!!(i&&i.ligado);
   return '<div class="card"><h3>WhatsApp e envio automático</h3><div class="note" style="background:transparent;padding:0">Cada conta conecta o próprio WhatsApp e o robô cobra só os clientes dela.</div>'+
    (i?whatsHTML(i.whats):'')+
-   '<label class="opt" style="margin:0"><input type="checkbox" id="s-auto"'+(on?" checked":"")+'><span>Mandar as cobranças sozinho no horário</span></label>'+
+   '<label class="opt" style="margin:0"><input type="checkbox" id="s-auto"'+(on?" checked":"")+'><span>Enviar cobranças automaticamente</span></label>'+
    '<div class="f" style="margin:0"><label for="s-time">Horário da cobrança</label><input id="s-time" type="time" value="'+esc(s.chargeTime||(i&&i.horario)||"09:00")+'"'+(on?"":" disabled")+'>'+
    '<span class="hint" id="s-time-hint" style="font-size:12px;color:var(--muted)"'+(on?" hidden":"")+'>Ligue o envio automático para escolher o horário.</span></div>'+
    '<div class="f" style="margin:0"><label for="s-rph">WhatsApp para o teste</label><input id="s-rph" type="tel" inputmode="tel" value="'+esc((S.robot||{}).phone||"")+'" placeholder="'+(i&&i.teste?"vazio: usa o de WHATSAPP_TESTE":"com DDD")+'"></div>'+
@@ -875,7 +875,7 @@ function vAjustes(){
   (SERVER?envCard():'<div class="card"><h3>Horário da cobrança</h3><div class="f" style="margin:0"><label for="s-time">Que horas você quer cobrar os clientes?</label><input id="s-time" type="time" value="'+esc(s.chargeTime||"09:00")+'"><span class="hint">A partir desse horário a tela Hoje mostra o botão "Cobrar todos".</span></div>'+
    '<button class="btn pri" data-act="saveTime">Salvar horário</button></div>'+(SERVER?'':
   '<div class="card"><h3>Envio automático pelo WhatsApp</h3>'+
-   '<label class="opt" style="margin:0"><input type="checkbox" id="s-auto"'+(s.autoSend?" checked":"")+'><span>Mandar as cobranças sozinho no horário</span></label>'+
+   '<label class="opt" style="margin:0"><input type="checkbox" id="s-auto"'+(s.autoSend?" checked":"")+'><span>Enviar cobranças automaticamente</span></label>'+
    (cloudOn()?'<span class="hint" style="font-size:13px;color:var(--muted)">O robô roda no seu servidor do Railway e manda pela Evolution.</span>':
    '<div class="f" style="margin:0"><label for="s-rurl">Endereço do robô</label><input id="s-rurl" type="url" inputmode="url" autocapitalize="off" placeholder="https://cashday-robo.seunome.workers.dev" value="'+esc((S.robot||{}).url||"")+'"></div>'+
    '<div class="f" style="margin:0"><label for="s-rpw">Senha do robô</label><input id="s-rpw" type="password" autocomplete="off" value="'+esc((S.robot||{}).pw||"")+'"></div>')+
