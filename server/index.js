@@ -168,15 +168,15 @@ async function desconectarWhats(u) {
 /* ---------- robô (mesma regra do robô do Cloudflare) ----------
    Cada conta cobra os próprios clientes pelo WhatsApp que ela conectou. */
 const enviar = (inst, phone, text) => sendWhats({ ...process.env, EVOLUTION_INSTANCIA: inst }, phone, text);
-// horário e envio automático: as variáveis do Railway, se existirem, valem para todas as contas;
-// sem elas, cada conta escolhe em Ajustes. WHATSAPP_TESTE é o número do administrador.
+// horário e envio automático: cada conta liga, desliga e escolhe o horário em Ajustes.
+// As variáveis do Railway só valem para a conta que ainda não escolheu. WHATSAPP_TESTE é o número do administrador.
 const sim = v => /^(sim|s|true|1|ligado|on|yes)$/i.test(v);
 const horarioEnv = () => { const h = env("HORARIO_COBRANCA"); return /^\d{1,2}:\d{2}$/.test(h) ? h.padStart(5, "0") : ""; };
 function config(dados, u) {
   const st = (dados && dados.settings) || {};
   return {
-    horario: horarioEnv() || st.chargeTime || "09:00",
-    ligado: env("ENVIO_AUTOMATICO") ? sim(env("ENVIO_AUTOMATICO")) : !!st.autoSend,
+    horario: st.chargeTime || horarioEnv() || "09:00",
+    ligado: typeof st.autoSend === "boolean" ? st.autoSend : sim(env("ENVIO_AUTOMATICO")),
     teste: u.id === ADMIN_ID ? env("WHATSAPP_TESTE").replace(/\D/g, "") : ""
   };
 }
@@ -226,7 +226,6 @@ async function roboStatus(u) {
   return {
     ok: true, agora: date + " " + hm, zapi: whats.estado === "open", envio: "Evolution", whats,
     ligado: cfg.ligado, horario: cfg.horario, teste: !!cfg.teste,
-    fixo: { horario: !!horarioEnv(), envio: !!env("ENVIO_AUTOMATICO") },
     pendentes: dados ? pending(dados, sent, date).length : 0, enviadosHoje: sent, log
   };
 }

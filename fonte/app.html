@@ -141,6 +141,7 @@ a{color:var(--accent)}
 .f{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
 .f label{font-size:13px;font-weight:600;color:var(--muted)}
 .f input,.f select,.f textarea{min-height:46px;border-radius:12px;border:1px solid var(--line);background:var(--bg);padding:0 12px;font:inherit;font-size:16px;color:var(--ink);width:100%}
+.f input:disabled{opacity:.5;cursor:not-allowed}
 .f textarea{padding:10px 12px;min-height:90px}
 .f .hint{font-size:12px;color:var(--muted)}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
@@ -369,7 +370,6 @@ async function syncRobot(showToast){
   try{
     const info=cloudOn()?await roboCall("/status"):await roboCall("/sync",{clients:S.clients,loans:S.loans,settings:S.settings});
     robo={state:"ok",info,err:""};
-    if(SERVER&&info.horario)S.settings.chargeTime=info.horario;
     const t=today();let ch=false;
     Object.keys(info.enviadosHoje||{}).forEach(id=>{const l=S.loans.find(x=>x.id===id);if(l&&l.chargedOn!==t){l.chargedOn=t;ch=true}});
     if(ch)keep();
@@ -402,12 +402,14 @@ function admNew(){
    '<button class="btn pri block" data-act="admSave">Cadastrar</button>');
 }
 function envCard(){
-  const i=robo.state==="ok"?robo.info:null,s=S.settings,fx=(i&&i.fixo)||{},hint=t=>'<span class="hint" style="font-size:12px;color:var(--muted)">'+t+'</span>';
+  const i=robo.state==="ok"?robo.info:null,s=S.settings,hint=t=>'<span class="hint" style="font-size:12px;color:var(--muted)">'+t+'</span>';
+  // cada conta escolhe: a escolha salva vale mais que o padrão do servidor
+  const on=typeof s.autoSend==="boolean"?s.autoSend:!!(i&&i.ligado);
   return '<div class="card"><h3>WhatsApp e envio automático</h3><div class="note" style="background:transparent;padding:0">Cada conta conecta o próprio WhatsApp e o robô cobra só os clientes dela.</div>'+
    (i?whatsHTML(i.whats):'')+
-   '<div class="f" style="margin:0"><label for="s-time">Horário da cobrança</label><input id="s-time" type="time" value="'+esc((i&&i.horario)||s.chargeTime||"09:00")+'"'+(fx.horario?" disabled":"")+'>'+(fx.horario?hint("Definido por HORARIO_COBRANCA no Railway."):"")+'</div>'+
-   '<label class="opt" style="margin:0"><input type="checkbox" id="s-auto"'+((i?i.ligado:s.autoSend)?" checked":"")+(fx.envio?" disabled":"")+'><span>Mandar as cobranças sozinho no horário</span></label>'+
-   (fx.envio?hint("Definido por ENVIO_AUTOMATICO no Railway"+(isAdm()?": apague essa variável para cada conta ligar e desligar o próprio envio.":".")):"")+
+   '<label class="opt" style="margin:0"><input type="checkbox" id="s-auto"'+(on?" checked":"")+'><span>Mandar as cobranças sozinho no horário</span></label>'+
+   '<div class="f" style="margin:0"><label for="s-time">Horário da cobrança</label><input id="s-time" type="time" value="'+esc(s.chargeTime||(i&&i.horario)||"09:00")+'"'+(on?"":" disabled")+'>'+
+   '<span class="hint" id="s-time-hint" style="font-size:12px;color:var(--muted)"'+(on?" hidden":"")+'>Ligue o envio automático para escolher o horário.</span></div>'+
    '<div class="f" style="margin:0"><label for="s-rph">WhatsApp para o teste</label><input id="s-rph" type="tel" inputmode="tel" value="'+esc((S.robot||{}).phone||"")+'" placeholder="'+(i&&i.teste?"vazio: usa o de WHATSAPP_TESTE":"com DDD")+'"></div>'+
    roboStatusHTML()+
    '<div class="acts"><button class="btn pri" data-act="saveEnvio">Salvar</button><button class="btn sec2" data-act="testRobo">Mandar teste</button><button class="btn ghost" data-act="roboRefresh">Atualizar</button></div>'+
@@ -1093,15 +1095,15 @@ document.addEventListener("click",e=>{
   else if(a==="whatsQr"){qrSheet()}
   else if(a==="whatsOut"){confirmSheet("Desconectar o WhatsApp?","O robô para de mandar as cobranças desta conta até você conectar de novo pelo QR Code.","Desconectar",()=>{
     cloudFetch("/api/whats/desconectar",{method:"POST",body:{}}).then(()=>{toast("WhatsApp desconectado");syncRobot()},e=>toast("Não desconectou: "+e.message))})}
-  else if(a==="saveEnvio"){const t=$("#s-time"),au=$("#s-auto");if(!t.disabled)S.settings.chargeTime=t.value||"09:00";if(!au.disabled)S.settings.autoSend=au.checked;
-    S.robot=Object.assign({},S.robot,{phone:$("#s-rph").value.replace(/\D/g,"")});save();toast("Salvo")}
+  else if(a==="saveEnvio"){const t=$("#s-time"),au=$("#s-auto");S.settings.autoSend=au.checked;if(au.checked)S.settings.chargeTime=t.value||"09:00";
+    S.robot=Object.assign({},S.robot,{phone:$("#s-rph").value.replace(/\D/g,"")});save();toast(au.checked?"Envio automático ligado às "+S.settings.chargeTime:"Envio automático desligado")}
   else if(a==="testRobo"&&SERVER){const ph=$("#s-rph").value.replace(/\D/g,"");if(ph){S.robot=Object.assign({},S.robot,{phone:ph});save()}
     roboCall("/teste",{phone:ph}).then(()=>toast("Teste enviado. Olhe seu WhatsApp."),e=>toast("Teste falhou: "+e.message))}
   else if(a==="testRobo"){const ph=$("#s-rph").value.replace(/\D/g,"");if(!roboOn()){toast("Salve o endereço e a senha primeiro");return}if(ph.length<10){toast("Coloque seu WhatsApp com DDD");return}
     S.robot.phone=ph;keep();
     roboCall("/teste",{phone:ph}).then(()=>toast("Teste enviado. Olhe seu WhatsApp."),e=>toast("Teste falhou: "+e.message))}
   else if(a==="saveTime"){S.settings.chargeTime=$("#s-time").value||"09:00";save();render();toast("Horário salvo: "+S.settings.chargeTime)}
-  else if(a==="saveSettings"){S.settings={chargeTime:S.settings.chargeTime||"09:00",autoSend:!!S.settings.autoSend,msg:S.settings.msg||null,pct:Number($("#s-pct").value)||0,n:Math.max(1,parseInt($("#s-n").value)||1),freq:$("#s-freq").value,lateType:$("#s-lt").value,lateValue:Number($("#s-lv").value)||0};save();toast("Padrão salvo")}
+  else if(a==="saveSettings"){S.settings={chargeTime:S.settings.chargeTime||"09:00",autoSend:S.settings.autoSend,msg:S.settings.msg||null,pct:Number($("#s-pct").value)||0,n:Math.max(1,parseInt($("#s-n").value)||1),freq:$("#s-freq").value,lateType:$("#s-lt").value,lateValue:Number($("#s-lv").value)||0};save();toast("Padrão salvo")}
   else if(a==="copyBackup"){const txt=JSON.stringify(S);
     const fallback=()=>{sheet('<h3>Seu backup</h3><div class="f"><label for="bk">Selecione tudo e copie</label><textarea id="bk" readonly>'+esc(txt)+'</textarea></div><button class="btn ghost block" data-close-btn>Fechar</button>');$("#bk").select()};
     try{navigator.clipboard.writeText(txt).then(()=>toast("Backup copiado. Cole no WhatsApp ou numa nota."),fallback)}catch(err){fallback()}}
@@ -1122,6 +1124,7 @@ document.addEventListener("input",e=>{
 document.addEventListener("change",e=>{
   if(e.target.dataset&&e.target.dataset.up){const [k,id]=e.target.dataset.up.split(":"),f=e.target.files&&e.target.files[0];if(f)uploadFile(k,id,f);e.target.value="";return}
   if(e.target.id==="pf-cli"){PF.cli=e.target.value;render();return}
+  if(e.target.id==="s-auto"&&SERVER){$("#s-time").disabled=!e.target.checked;$("#s-time-hint").hidden=e.target.checked;return}
   const n=e.target.name;if(n&&/-g$/.test(n)){const px=n.slice(0,-2),box=$("#"+px+"-gbox");box.hidden=e.target.value!=="sim";if(!box.hidden)$("#"+px+"-gar").focus()}if(e.target.id&&e.target.id.startsWith("l-"))loanCalc();if(e.target.id==="p-date")payCalc(true)});
 document.addEventListener("submit",e=>{e.preventDefault();const id=e.target.id;if(id==="fc")submitClient();else if(id==="fl")submitLoan();else if(id==="fp")submitPay();else if(id==="fg"){
   const l=S.loans.find(x=>x.id===$("#g-l").value),g=garVal("g");if(garHas("g")&&!g){toast("Escreva qual é a garantia");return}

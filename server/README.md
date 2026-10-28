@@ -11,12 +11,13 @@ e roda o robô de cobrança pela Evolution API.
    - `ADMIN_USUARIO` (opcional) = troca o nome do usuário do administrador
    - `EVOLUTION_URL` e `EVOLUTION_APIKEY` (a chave global, `AUTHENTICATION_API_KEY` da Evolution), para o envio automático
    - `EVOLUTION_INSTANCIA` (opcional) = instância já conectada que o administrador quer continuar usando
-   - `HORARIO_COBRANCA` (opcional) = hora de começar a cobrar, ex.: `09:00`, igual para todas as contas
-   - `ENVIO_AUTOMATICO` (opcional) = `sim` ou `nao`, igual para todas as contas
+   - `HORARIO_COBRANCA` (opcional) = horário padrão, ex.: `09:00`, para a conta que ainda não escolheu o dela
+   - `ENVIO_AUTOMATICO` (opcional) = `sim` ou `nao`, padrão para a conta que ainda não ligou nem desligou o envio
    - `WHATSAPP_TESTE` (opcional) = WhatsApp do administrador com DDD, para o botão "Mandar teste"
 
 Abra o app pelo endereço do Railway: ele já sabe onde está o servidor e só pede a senha uma vez.
-Sem `HORARIO_COBRANCA` e `ENVIO_AUTOMATICO`, cada conta escolhe o horário e liga o envio em Ajustes.
+Cada conta liga ou desliga o próprio envio automático em Ajustes > WhatsApp e envio automático; o horário só
+fica liberado com o envio ligado. `HORARIO_COBRANCA` e `ENVIO_AUTOMATICO` não travam mais a escolha das contas.
 4. Settings > Networking > Generate Domain.
 5. No app: Ajustes > Nuvem (Railway), cole o endereço e a senha.
 
