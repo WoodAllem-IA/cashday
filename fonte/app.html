@@ -227,14 +227,19 @@ function addPeriod(s,f,k){
 const fmtD=s=>{const d=parse(s);return pad(d.getDate())+"/"+pad(d.getMonth()+1)+"/"+d.getFullYear()};
 const fmtShort=s=>{const d=parse(s);return pad(d.getDate())+"/"+pad(d.getMonth()+1)};
 
-/* ---------- dados ---------- */
+/* ---------- dados ----------
+   No endereço do Railway nada fica guardado no aparelho: os dados vêm do banco
+   ao abrir e cada mudança vai para o banco na hora. */
+const ONLINE=!!window.CASHDAY_SERVIDOR;
 let S=load();
 function blank(){return{clients:[],loans:[],payments:[],settings:{pct:40,lateType:"fixo",lateValue:50,freq:"mensal",n:1,chargeTime:"09:00"}}}
 function load(){
+  if(ONLINE){try{localStorage.removeItem(KEY)}catch(e){}return blank()}
   try{const raw=localStorage.getItem(KEY);if(raw){const d=Object.assign(blank(),JSON.parse(raw));d.settings=Object.assign(blank().settings,d.settings);const m=d.settings.msg;if(m&&/^\{nome\}, sua \{parcela\}/.test(m.late||"")&&/^\{nome\}, hoje vence/.test(m.today||""))d.settings.msg=null;return d}}catch(e){}
   return seed();
 }
-function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}queueSync();queuePush()}
+function keep(){if(!ONLINE)try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}}
+function save(){keep();queueSync();queuePush()}
 
 /* ---------- nuvem (servidor no Railway) ----------
    O celular continua guardando tudo; a nuvem recebe cada mudança e devolve
@@ -244,7 +249,7 @@ let C=(()=>{try{return JSON.parse(localStorage.getItem(CKEY))||{}}catch(e){retur
 // aberto pelo endereço do Railway: tudo vem das variáveis do servidor, só pede a senha
 const SERVER=!!window.CASHDAY_SERVIDOR;
 if(SERVER&&C.url!==location.origin)C={url:location.origin};
-let cloud={state:"off",err:"",at:null},pushT=null,dirty=false,busy=false;
+let cloud={state:"off",err:"",at:null},pushT=null,dirty=false,busy=false,edits=0,ready=!ONLINE;
 const cloudOn=()=>!!(C.url&&C.token);
 function saveC(){try{localStorage.setItem(CKEY,JSON.stringify(C))}catch(e){}}
 async function cloudFetch(path,opt){
@@ -255,7 +260,7 @@ async function cloudFetch(path,opt){
   if(!r.ok&&r.status!==409)throw new Error(j.erro||("O servidor respondeu "+r.status));
   return Object.assign(j,{status:r.status});
 }
-function queuePush(){if(!cloudOn())return;dirty=true;clearTimeout(pushT);pushT=setTimeout(pushCloud,1500)}
+function queuePush(){if(!cloudOn())return;dirty=true;edits++;clearTimeout(pushT);pushT=setTimeout(pushCloud,SERVER?200:1500)}
 function mergeState(remote,local){
   const out=Object.assign(blank(),remote,{settings:local.settings||remote.settings,robot:local.robot});
   ["clients","loans","payments"].forEach(k=>{
@@ -264,24 +269,25 @@ function mergeState(remote,local){
   return out;
 }
 async function pushCloud(){
-  if(!cloudOn()||busy)return;busy=true;
+  if(!cloudOn()||busy)return;busy=true;const n=edits;
   try{
     let j=await cloudFetch("/api/estado",{method:"PUT",body:{base:C.versao||0,dados:S}});
     if(j.status===409){S=mergeState(j.dados||blank(),S);j=await cloudFetch("/api/estado",{method:"PUT",body:{base:j.versao,dados:S}});
-      try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}if(!$("#layer").innerHTML)render()}
-    if(j.ok){C.versao=j.versao;saveC();dirty=false;cloud={state:"ok",err:"",at:new Date()}}
-  }catch(e){cloud={state:"err",err:String(e.message||e),at:cloud.at}}
-  busy=false;if(view.tab==="ajustes"&&!$("#layer").innerHTML)render();
+      keep();if(!$("#layer").innerHTML)render()}
+    if(j.ok){C.versao=j.versao;saveC();dirty=edits!==n;const was=cloud.state;cloud={state:"ok",err:"",at:new Date()};if(SERVER&&was==="err"&&!$("#layer").innerHTML)render()}
+  }catch(e){const was=cloud.state;cloud={state:"err",err:String(e.message||e),at:cloud.at};if(SERVER){setTimeout(pushCloud,5000);if(was!=="err"&&!$("#layer").innerHTML)render()}}
+  busy=false;if(dirty&&cloud.state==="ok")pushCloud();else if(view.tab==="ajustes"&&!$("#layer").innerHTML)render();
 }
 async function pullCloud(){
   if(!cloudOn()||busy)return;
   if(dirty)return pushCloud();
   try{
     const j=await cloudFetch("/api/estado");
+    if(!ready){ready=true;C.versao=0;if(!j.dados&&!$("#layer").innerHTML)render()}
     if(j.ok&&j.dados&&j.versao>(C.versao||0)){S=Object.assign(blank(),j.dados,{robot:S.robot});C.versao=j.versao;saveC();
-      try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}if(!$("#layer").innerHTML)render()}
+      keep();if(!$("#layer").innerHTML)render()}
     cloud={state:"ok",err:"",at:new Date()};
-  }catch(e){cloud={state:"err",err:String(e.message||e),at:cloud.at}}
+  }catch(e){cloud={state:"err",err:String(e.message||e),at:cloud.at};if(!ready)render()}
 }
 const onlySamples=d=>!(d.clients||[]).some(c=>!c.sample);
 async function cloudConnect(url,senha,usuario){
@@ -290,11 +296,12 @@ async function cloudConnect(url,senha,usuario){
   if(!j.ok)throw new Error(j.erro||"Não entrou");
   const u=j.usuario||{id:1,admin:true};
   // outro usuário neste aparelho: não mistura os dados de um com os do outro
-  if(dono&&dono!==u.id){S=blank();try{localStorage.setItem(KEY,JSON.stringify(S))}catch(x){}}
+  if(dono&&dono!==u.id){S=blank();keep();}
   C.token=j.token;C.versao=0;C.user=u;C.dono=u.id;C.login=u.login;saveC();
+  if(SERVER){const e=await cloudFetch("/api/estado");S=Object.assign(blank(),e.dados||{});C.versao=e.versao||0;saveC();ready=true;cloud={state:"ok",err:"",at:new Date()};return "baixou"}
   const e=await cloudFetch("/api/estado");
   if(!e.dados){const r=await cloudFetch("/api/estado",{method:"PUT",body:{base:0,dados:S}});C.versao=r.versao;saveC();cloud={state:"ok",err:"",at:new Date()};return "subiu"}
-  if(onlySamples(S)){S=Object.assign(blank(),e.dados,{robot:S.robot});C.versao=e.versao;saveC();try{localStorage.setItem(KEY,JSON.stringify(S))}catch(x){}cloud={state:"ok",err:"",at:new Date()};return "baixou"}
+  if(onlySamples(S)){S=Object.assign(blank(),e.dados,{robot:S.robot});C.versao=e.versao;saveC();keep();cloud={state:"ok",err:"",at:new Date()};return "baixou"}
   return {escolher:e};
 }
 function cloudCard(){
@@ -361,7 +368,7 @@ async function syncRobot(showToast){
     if(SERVER&&info.horario)S.settings.chargeTime=info.horario;
     const t=today();let ch=false;
     Object.keys(info.enviadosHoje||{}).forEach(id=>{const l=S.loans.find(x=>x.id===id);if(l&&l.chargedOn!==t){l.chargedOn=t;ch=true}});
-    if(ch)try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}
+    if(ch)keep();
     if(showToast)toast("Robô conectado");
   }catch(e){robo={state:"err",info:null,err:String(e.message||e)};if(showToast)toast("Não conectou: "+robo.err)}
   if(!$("#layer").innerHTML&&(view.tab==="hoje"||view.tab==="ajustes"))render();
@@ -496,6 +503,8 @@ function vEntrar(){
 function render(){
   const app=$("#app");
   if(SERVER&&!cloudOn()){$("#tabs").innerHTML="";app.innerHTML=vEntrar();return}
+  if(!ready){$("#tabs").innerHTML="";app.innerHTML=header()+'<div class="card"><h3>'+(cloud.state==="err"?'Sem conexão com o banco de dados':'Carregando seus dados...')+'</h3>'+
+    (cloud.state==="err"?'<div class="note" style="color:var(--late)">'+esc(cloud.err)+'</div><button class="btn pri" data-act="reload">Tentar de novo</button>':'')+'</div>';return}
   renderTabs();
   if(view.tab==="hoje")app.innerHTML=vHoje();
   else if(view.tab==="clientes")app.innerHTML=view.client?vCliente(view.client):vClientes();
@@ -507,6 +516,7 @@ function render(){
 function header(){
   const d=new Date().toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"});
   return '<div class="top"><div class="brand"><div class="logo">C$</div><h1>CashDay</h1></div><div class="date">'+esc(d.charAt(0).toUpperCase()+d.slice(1))+'</div></div>'+
+    (SERVER&&cloud.state==="err"&&ready?'<div class="banner" style="color:var(--late)"><span>Sem conexão com o banco de dados. A última mudança ainda não foi salva; tento de novo sozinho.</span></div>':'')+
     (S.sample?'<div class="banner"><span>Você está vendo clientes de exemplo.</span><button data-act="clearSample">Apagar exemplos</button></div>':'');
 }
 
@@ -995,7 +1005,7 @@ document.addEventListener("click",e=>{
         '<div class="list"><button class="btn pri block" data-act="cloudUseRemote" data-v="'+e.versao+'">Usar os dados da nuvem</button><button class="btn ghost block" data-act="cloudUseLocal">Juntar com os deste celular</button></div>');
         window.__cloudRemote=e}
     },err=>{C={url:url,dono:C.dono,login:us||C.login};saveC();cloud={state:"err",err:String(err.message||err),at:null};render();toast("Não conectou: "+cloud.err)})}
-  else if(a==="cloudUseRemote"){const e=window.__cloudRemote;S=Object.assign(blank(),e.dados,{robot:S.robot});C.versao=e.versao;saveC();try{localStorage.setItem(KEY,JSON.stringify(S))}catch(x){}
+  else if(a==="cloudUseRemote"){const e=window.__cloudRemote;S=Object.assign(blank(),e.dados,{robot:S.robot});C.versao=e.versao;saveC();keep();
     cloud={state:"ok",err:"",at:new Date()};closeSheet();go({tab:"hoje"});toast("Dados da nuvem carregados")}
   else if(a==="cloudUseLocal"){const e=window.__cloudRemote;S=mergeState(e.dados,S);C.versao=e.versao;saveC();closeSheet();save();go({tab:"hoje"});toast("Dados juntados e salvos na nuvem")}
   else if(a==="cloudSync"){toast("Sincronizando...");(dirty?pushCloud():pullCloud()).then(()=>{render();toast(cloud.state==="ok"?"Tudo sincronizado":"Sem conexão: "+cloud.err)})}
@@ -1006,11 +1016,12 @@ document.addEventListener("click",e=>{
       (j.backups||[]).map(b=>'<div class="hrow"><div class="l"><b>'+new Date(b.criado).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})+'</b><span>'+esc(b.motivo||"")+' · '+(b.clientes||0)+' clientes</span></div><div class="r"><button class="link" style="color:var(--accent)" data-act="cloudRestore" data-b="'+b.id+'">Restaurar</button></div></div>').join("")+
       '</div><button class="btn ghost block" style="margin-top:12px" data-close-btn>Fechar</button>')},e=>toast("Não carregou: "+e.message))}
   else if(a==="cloudRestore"){const id=b.dataset.b;confirmSheet("Restaurar este backup?","Os dados atuais serão trocados pelos do backup. A versão atual também fica guardada nos backups.","Restaurar",()=>{
-    cloudFetch("/api/backups/"+id).then(j=>{S=Object.assign(blank(),j.dados,{robot:S.robot});return cloudFetch("/api/estado",{method:"PUT",body:{forcar:true,dados:S}})}).then(j=>{C.versao=j.versao;saveC();try{localStorage.setItem(KEY,JSON.stringify(S))}catch(x){}go({tab:"hoje"});toast("Backup restaurado")},e=>toast("Não restaurou: "+e.message))})}
+    cloudFetch("/api/backups/"+id).then(j=>{S=Object.assign(blank(),j.dados,{robot:S.robot});return cloudFetch("/api/estado",{method:"PUT",body:{forcar:true,dados:S}})}).then(j=>{C.versao=j.versao;saveC();keep();go({tab:"hoje"});toast("Backup restaurado")},e=>toast("Não restaurou: "+e.message))})}
   else if(a==="fileDel"){const k=b.dataset.k,oid=b.dataset.id,fid=b.dataset.f;confirmSheet("Apagar este arquivo?","Ele sai da nuvem e não dá para desfazer.","Apagar",()=>{
     const owner=k==="client"?client(oid):S.loans.find(x=>x.id===oid);if(owner){owner.files=(owner.files||[]).filter(f=>f.id!==fid);save()}
     cloudFetch("/api/arquivos/"+fid,{method:"DELETE"}).catch(()=>{});toast("Arquivo apagado")})}
   else if(a==="roboRefresh"){syncRobot(true)}
+  else if(a==="reload")location.reload();
   else if(a==="admList"){loadUsers().then(admList)}
   else if(a==="admNew")admNew();
   else if(a==="admSave"){const body={nome:$("#u-nome").value.trim(),login:$("#u-login").value.trim().toLowerCase(),senha:$("#u-pw").value};
@@ -1023,7 +1034,7 @@ document.addEventListener("click",e=>{
     cloudFetch("/api/usuarios/"+u.id,{method:"PUT",body:{ativo:!u.ativo}}).then(j=>{if(!j.ok)throw new Error(j.erro);toast(u.ativo?u.nome+" bloqueado":u.nome+" desbloqueado");return loadUsers()}).then(admList,e=>toast(e.message))}
   else if(a==="testRobo"&&SERVER){roboCall("/teste",{}).then(()=>toast("Teste enviado. Olhe seu WhatsApp."),e=>toast("Teste falhou: "+e.message))}
   else if(a==="testRobo"){const ph=$("#s-rph").value.replace(/\D/g,"");if(!roboOn()){toast("Salve o endereço e a senha primeiro");return}if(ph.length<10){toast("Coloque seu WhatsApp com DDD");return}
-    S.robot.phone=ph;try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}
+    S.robot.phone=ph;keep();
     roboCall("/teste",{phone:ph}).then(()=>toast("Teste enviado. Olhe seu WhatsApp."),e=>toast("Teste falhou: "+e.message))}
   else if(a==="saveTime"){S.settings.chargeTime=$("#s-time").value||"09:00";save();render();toast("Horário salvo: "+S.settings.chargeTime)}
   else if(a==="saveSettings"){S.settings={chargeTime:S.settings.chargeTime||"09:00",autoSend:!!S.settings.autoSend,msg:S.settings.msg||null,pct:Number($("#s-pct").value)||0,n:Math.max(1,parseInt($("#s-n").value)||1),freq:$("#s-freq").value,lateType:$("#s-lt").value,lateValue:Number($("#s-lv").value)||0};save();toast("Padrão salvo")}
@@ -1054,9 +1065,10 @@ document.addEventListener("submit",e=>{e.preventDefault();const id=e.target.id;i
 document.addEventListener("keydown",e=>{if(e.key==="Escape")closeSheet()});
 document.addEventListener("visibilitychange",()=>{if(!document.hidden){if(cloudOn())pullCloud();if(roboOn())syncRobot();if(!$("#layer").innerHTML)render()}});
 
-try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){}render();syncRobot();if(cloudOn())pullCloud();
+keep();render();syncRobot();if(cloudOn())pullCloud();
 if(SERVER&&cloudOn())cloudFetch("/api/eu").then(j=>{if(j.usuario){C.user=j.usuario;C.dono=j.usuario.id;saveC();loadUsers();render()}}).catch(()=>{});
-setInterval(()=>{if(cloudOn()&&!document.hidden)pullCloud()},60000);
+setInterval(()=>{if(cloudOn()&&!document.hidden)pullCloud()},SERVER?8000:60000);
+window.addEventListener("beforeunload",e=>{if(SERVER&&dirty){e.preventDefault();e.returnValue=""}});
 setInterval(()=>{if(view.tab==="hoje"&&!$("#layer").innerHTML&&!document.hidden)render()},60000);
 try{if("serviceWorker" in navigator&&window.CASHDAY_STANDALONE)navigator.serviceWorker.register("sw.js")}catch(e){}
 })();
