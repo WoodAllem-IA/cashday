@@ -9,6 +9,7 @@ e roda o robô de cobrança pela Evolution API.
    - `DATABASE_URL` = `${{Postgres.DATABASE_URL}}`
    - `APP_SENHA` = a senha do administrador (entra com o usuário `admin`)
    - `ADMIN_USUARIO` (opcional) = troca o nome do usuário do administrador
+   - `ADMIN_NOME` (opcional) = seu nome para a saudação "Olá, Senhor ..."
    - `EVOLUTION_URL` e `EVOLUTION_APIKEY` (a chave global, `AUTHENTICATION_API_KEY` da Evolution), para o envio automático
    - `EVOLUTION_INSTANCIA` (opcional) = instância já conectada que o administrador quer continuar usando
    - `HORARIO_COBRANCA` (opcional) = horário padrão, ex.: `09:00`, para a conta que ainda não escolheu o dela

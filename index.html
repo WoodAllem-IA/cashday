@@ -51,6 +51,7 @@ a{color:var(--accent)}
 .brand{display:flex;align-items:center;gap:10px}
 .logo{width:34px;height:34px;border-radius:10px;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font-family:var(--display);font-weight:800;font-size:17px}
 .brand h1{font-size:24px;font-weight:800}
+.ola{font-size:22px;font-weight:800;margin:0 0 12px;color:var(--ink)}
 .date{color:var(--muted);font-size:14px;text-align:right}
 .topr{display:flex;align-items:center;gap:10px}
 .out{display:flex;align-items:center;gap:6px;min-height:36px;padding:0 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:14px;font-weight:600}
@@ -575,6 +576,9 @@ function render(){
   if(view.tab==="clientes"&&!view.client){const s=$("#q");if(s){s.value=view.q||"";}}
 }
 
+// saudação: "Olá, Senhor Fulano" com o primeiro nome de quem entrou
+const primeiroNome=n=>String(n||"").trim().split(/\s+/)[0]||"";
+function ola(){const n=SERVER&&C.user&&C.user.nome!=="Administrador"?primeiroNome(C.user.nome):"";return n?"Olá, Senhor "+n:""}
 function header(){
   const d=new Date().toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"});
   return '<div class="top"><div class="brand"><div class="logo">C$</div><h1>CashDay</h1></div><div class="topr"><div class="date">'+esc(d.charAt(0).toUpperCase()+d.slice(1))+'</div>'+
@@ -626,7 +630,7 @@ function vHoje(){
   const sumToday=now.reduce((s,l)=>s+parcel(l),0);
   const sumLate=late.reduce((s,l)=>s+parcel(l)+lateFee(l),0);
   const street=open.reduce((s,l)=>s+remaining(l),0);
-  return header()+
+  return header()+(ola()?'<h2 class="ola">'+esc(ola())+'</h2>':'')+
    '<div class="sum"><div><small>Vence hoje</small><b class="num">'+brl(sumToday)+'</b></div>'+
    '<div class="l"><small>Atrasado</small><b class="num">'+brl(sumLate)+'</b></div>'+
    '<div><small>Valor investido</small><b class="num">'+brl(street)+'</b></div></div>'+
@@ -1080,7 +1084,7 @@ document.addEventListener("click",e=>{
     cloud={state:"sync",err:"",at:null};toast("Conectando...");
     cloudConnect(url,pw,us).then(r=>{if(isAdm())loadUsers();
       if(r==="subiu"){toast("Pronto! Seus dados subiram para a nuvem.");render();syncRobot()}
-      else if(r==="baixou"){toast("Pronto! Dados da nuvem carregados.");go({tab:"hoje"});syncRobot()}
+      else if(r==="baixou"){toast(ola()?ola()+"! Seja bem-vindo.":"Pronto! Dados da nuvem carregados.");go({tab:"hoje"});syncRobot()}
       else{const e=r.escolher;sheet('<h3>Já existem dados na nuvem</h3><p class="note">A nuvem tem '+(e.dados.clients||[]).length+' clientes. Este celular tem '+S.clients.length+'. Qual você quer manter?</p>'+
         '<div class="list"><button class="btn pri block" data-act="cloudUseRemote" data-v="'+e.versao+'">Usar os dados da nuvem</button><button class="btn ghost block" data-act="cloudUseLocal">Juntar com os deste celular</button></div>');
         window.__cloudRemote=e}

@@ -5,6 +5,7 @@
 //   DATABASE_URL         ${{Postgres.DATABASE_URL}}
 //   ADMIN_USUARIO        usuário do administrador (padrão: admin)
 //   APP_SENHA            senha do administrador
+//   ADMIN_NOME           nome do administrador na saudação (ex.: Wood)
 //   EVOLUTION_URL        endereço da Evolution (opcional, para o envio automático)
 //   EVOLUTION_APIKEY     chave global da Evolution (AUTHENTICATION_API_KEY)
 //   EVOLUTION_INSTANCIA  (opcional) instância já conectada que o administrador continua usando
@@ -46,8 +47,10 @@ async function migrate() {
     alter table envio_log add column if not exists usuario int not null default 1;
   `);
   // o administrador vem das variáveis do Railway (ADMIN_USUARIO e APP_SENHA)
-  await db.query(`insert into usuarios (id, login, nome, admin) values ($1, $2, 'Administrador', true)
-    on conflict (id) do update set login=$2, admin=true, ativo=true`, [ADMIN_ID, ADMIN]);
+  // nome do administrador para a saudação: variável ADMIN_NOME
+  const nomeAdm = (process.env.ADMIN_NOME || "").trim().slice(0, 80);
+  await db.query(`insert into usuarios (id, login, nome, admin) values ($1, $2, coalesce(nullif($3,''), 'Administrador'), true)
+    on conflict (id) do update set login=$2, admin=true, ativo=true, nome=coalesce(nullif($3,''), usuarios.nome)`, [ADMIN_ID, ADMIN, nomeAdm]);
   await db.query("select setval(pg_get_serial_sequence('usuarios','id'), greatest((select max(id) from usuarios), 1))");
 }
 
