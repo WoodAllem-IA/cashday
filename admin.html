@@ -1,0 +1,456 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CashDay · Administração</title>
+<link rel="icon" href="/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Figtree:wght@400;500;600;700&display=swap">
+<style>
+/* Painel do administrador: feito para tela de computador (tabelas largas), mas funciona no celular */
+:root{
+  --bg:#EEF2F0; --surface:#FFFFFF; --ink:#13241D; --muted:#5D6F67; --line:#D5DED9; --row:#F6F9F7;
+  --accent:#0E7A55; --accent-ink:#FFFFFF; --accent-soft:#DDEFE6;
+  --late:#B83A26; --late-soft:#F8E2DC; --today:#9A6200; --today-soft:#FBEED3; --ok:#0E7A55;
+  --shadow:0 1px 2px rgba(19,36,29,.06),0 4px 14px rgba(19,36,29,.06);
+  --display:"Bricolage Grotesque",ui-rounded,system-ui,sans-serif;
+  --body:"Figtree",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --r:14px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0E1613; --surface:#17221D; --ink:#E6EFEA; --muted:#93A69D; --line:#2A3832; --row:#1B2822;
+  --accent:#3BBF8A; --accent-ink:#06130D; --accent-soft:#183428;
+  --late:#F07A63; --late-soft:#3A1E18; --today:#E8B04C; --today-soft:#352914; --ok:#3BBF8A;
+  --shadow:0 1px 2px rgba(0,0,0,.3); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0E1613; --surface:#17221D; --ink:#E6EFEA; --muted:#93A69D; --line:#2A3832; --row:#1B2822;
+  --accent:#3BBF8A; --accent-ink:#06130D; --accent-soft:#183428;
+  --late:#F07A63; --late-soft:#3A1E18; --today:#E8B04C; --today-soft:#352914; --ok:#3BBF8A;
+  --shadow:0 1px 2px rgba(0,0,0,.3); color-scheme:dark}
+*{box-sizing:border-box}
+html,body{background:var(--bg);margin:0}
+body{color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.45;-webkit-font-smoothing:antialiased}
+h1,h2,h3{font-family:var(--display);margin:0;letter-spacing:-.01em}
+button,input,select{font:inherit;color:inherit}
+button{border:0;background:none;cursor:pointer}
+button:focus-visible,input:focus-visible,select:focus-visible,a:focus-visible,tr:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+a{color:var(--accent)}
+.num{font-variant-numeric:tabular-nums}
+[hidden]{display:none!important}
+
+.bar{position:sticky;top:0;z-index:5;background:var(--surface);border-bottom:1px solid var(--line)}
+.bar-in{max-width:1400px;margin:0 auto;padding:10px 24px;display:flex;align-items:center;gap:20px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:10px}
+.logo{width:32px;height:32px;border-radius:9px;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font-family:var(--display);font-weight:800;font-size:16px}
+.brand h1{font-size:20px;font-weight:800}
+.brand small{color:var(--muted);font-size:13px;font-weight:600;margin-left:2px}
+.tabs{display:flex;gap:4px}
+.tabs button{padding:8px 14px;border-radius:10px;font-weight:600;color:var(--muted)}
+.tabs button[aria-pressed="true"]{background:var(--accent-soft);color:var(--accent)}
+.who{margin-left:auto;display:flex;align-items:center;gap:10px;color:var(--muted);font-size:14px}
+
+main{max-width:1400px;margin:0 auto;padding:20px 24px 48px}
+.head{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.head h2{font-size:24px;font-weight:800}
+.head p{margin:2px 0 0;color:var(--muted);font-size:14px}
+.tools{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:38px;padding:0 14px;border-radius:10px;font-weight:700;font-size:14px;text-decoration:none;white-space:nowrap}
+.btn.pri{background:var(--accent);color:var(--accent-ink)}
+.btn.sec{background:var(--accent-soft);color:var(--accent)}
+.btn.ghost{background:var(--surface);border:1px solid var(--line);color:var(--ink)}
+.btn.danger{background:var(--late-soft);color:var(--late)}
+.btn.sm{min-height:30px;padding:0 10px;font-size:13px}
+.search{min-height:38px;border:1px solid var(--line);border-radius:10px;background:var(--surface);padding:0 12px;width:260px;max-width:100%}
+.chk{display:inline-flex;align-items:center;gap:8px;font-size:14px;color:var(--muted);font-weight:600}
+.chk input{width:18px;height:18px;accent-color:var(--accent)}
+
+.kpis{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;margin-bottom:18px}
+.kpi{background:var(--surface);border-radius:var(--r);box-shadow:var(--shadow);padding:14px 16px;min-width:0}
+.kpi small{display:block;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em;font-weight:700}
+.kpi b{display:block;font-family:var(--display);font-size:22px;font-weight:800;letter-spacing:-.02em;margin-top:2px;overflow-wrap:anywhere}
+.kpi span{display:block;color:var(--muted);font-size:13px}
+.kpi.bad b{color:var(--late)}
+.kpi.good b{color:var(--ok)}
+
+.card{background:var(--surface);border-radius:var(--r);box-shadow:var(--shadow);margin-bottom:18px;overflow:hidden}
+.card>h3{font-size:16px;font-weight:800;padding:14px 16px 0;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.card>h3 span{font-family:var(--body);font-size:13px;font-weight:500;color:var(--muted)}
+.tw{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font-size:12px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.04em;background:var(--surface);position:sticky;top:0}
+th[data-sort]{cursor:pointer;user-select:none}
+th[data-sort]:hover{color:var(--ink)}
+th .ar{font-size:10px;margin-left:3px}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+tbody tr:last-child td{border-bottom:0}
+tr.go{cursor:pointer}
+tr.go:hover td{background:var(--row)}
+td .sub{display:block;color:var(--muted);font-size:12px}
+td.wrap{white-space:normal;min-width:180px}
+.empty{color:var(--muted);padding:22px 16px;text-align:center}
+
+.tag{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--bg);color:var(--muted)}
+.tag.ok{background:var(--accent-soft);color:var(--ok)}
+.tag.bad{background:var(--late-soft);color:var(--late)}
+.tag.warn{background:var(--today-soft);color:var(--today)}
+.tag i{width:7px;height:7px;border-radius:50%;background:currentColor}
+.late{color:var(--late);font-weight:700}
+.score{display:inline-grid;place-items:center;min-width:26px;height:22px;border-radius:7px;font-weight:800;font-size:12px}
+.score.good{background:var(--accent-soft);color:var(--ok)}
+.score.mid{background:var(--today-soft);color:var(--today)}
+.score.bad{background:var(--late-soft);color:var(--late)}
+
+.grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px}
+.grid2 .card{margin-bottom:0}
+.back{display:inline-flex;align-items:center;gap:4px;color:var(--muted);font-weight:600;margin-bottom:8px}
+.meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+
+.login{max-width:380px;margin:12vh auto;background:var(--surface);border-radius:var(--r);box-shadow:var(--shadow);padding:24px;display:flex;flex-direction:column;gap:12px}
+.f{display:flex;flex-direction:column;gap:5px}
+.f label{font-size:13px;font-weight:700;color:var(--muted)}
+.f input{min-height:42px;border:1px solid var(--line);border-radius:10px;background:var(--bg);padding:0 12px;font-size:15px}
+.err{color:var(--late);font-size:14px}
+.note{color:var(--muted);font-size:14px}
+
+dialog{border:0;border-radius:var(--r);padding:22px;width:min(420px,calc(100vw - 32px));background:var(--surface);color:var(--ink);box-shadow:0 20px 60px rgba(0,0,0,.25)}
+dialog::backdrop{background:rgba(10,20,15,.45)}
+dialog form{display:flex;flex-direction:column;gap:12px}
+dialog .acts{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-weight:600;font-size:14px;z-index:20;max-width:calc(100vw - 32px)}
+
+@media (max-width:1100px){.kpis{grid-template-columns:repeat(3,minmax(0,1fr))}.grid2{grid-template-columns:minmax(0,1fr)}}
+@media (max-width:640px){
+  .bar-in{padding:10px 16px;gap:10px}.who{margin-left:0;width:100%;justify-content:space-between}
+  main{padding:16px 16px 40px}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.kpi b{font-size:18px}
+  .search{width:100%}
+}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<dialog id="dlg"></dialog>
+<div id="toast" class="toast" hidden></div>
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const brl=v=>(Number(v)||0).toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
+const r2=v=>Math.round((Number(v)||0)*100)/100;
+const pad=n=>String(n).padStart(2,"0");
+const toISO=d=>d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
+const parse=s=>{const[y,m,d]=s.split("-").map(Number);return new Date(y,m-1,d)};
+const today=()=>toISO(new Date());
+const diffDays=(a,b)=>Math.round((parse(a)-parse(b))/864e5);
+const fmtD=s=>s?pad(parse(s).getDate())+"/"+pad(parse(s).getMonth()+1)+"/"+parse(s).getFullYear():"-";
+const quando=t=>{if(!t)return "nunca";const d=new Date(t);return d.toLocaleDateString("pt-BR")+" "+d.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})};
+const FREQ={diario:"Diário",semanal:"Semanal",quinzenal:"Quinzenal",mensal:"Mensal"};
+const KIND={parcela:"Parcela",juros:"Só porcentagem",quitacao:"Quitação"};
+const fone=p=>{const d=String(p||"").replace(/\D/g,"");return d.length===11?"("+d.slice(0,2)+") "+d.slice(2,7)+"-"+d.slice(7):d.length===10?"("+d.slice(0,2)+") "+d.slice(2,6)+"-"+d.slice(6):d||"-"};
+
+/* ---------- mesmas contas do app ---------- */
+const total=l=>r2(l.principal*(1+l.pct/100));
+const parcel=l=>r2(total(l)/l.n);
+const remaining=l=>r2(parcel(l)*(l.n-l.paid));
+const daysLate=l=>Math.max(0,diffDays(today(),l.nextDue));
+const lateFee=l=>{const d=daysLate(l);if(!d)return 0;return l.lateType==="pct"?r2(parcel(l)*l.lateValue/100*d):r2(l.lateValue*d)};
+function payProfit(p,loans){
+  const l=loans.find(x=>x.id===p.loanId);if(!l)return p.amount;
+  const cap=l.principal/l.n,back=p.kind==="juros"?0:p.kind==="quitacao"?cap*(l.n-((p.prev&&p.prev.paid)??(p.inst-1))):cap;
+  return r2(p.amount-back);
+}
+const latePenalty=d=>d<=0?0:d<=7?1:d<=30?2:3;
+function score(cid,a){
+  const t=today(),ev=[];
+  a.payments.forEach(p=>{if(p.clientId===cid&&p.lateDays>0)ev.push(p.lateDays)});
+  a.loans.forEach(l=>{if(l.clientId===cid&&l.status==="aberto"&&l.nextDue<t)ev.push(daysLate(l))});
+  return Math.max(0,10-ev.reduce((s,d)=>s+latePenalty(d),0));
+}
+const scoreTag=v=>'<span class="score '+(v>=8?"good":v>=5?"mid":"bad")+'" title="Score '+v+' de 10">'+v+'</span>';
+
+/* ---------- login: usa o mesmo login do app neste navegador ---------- */
+const KAPP="cashday-nuvem",KADM="cashday-admin";
+const ler=k=>{try{return JSON.parse(localStorage.getItem(k))||{}}catch(e){return{}}};
+let token=ler(KADM).token||ler(KAPP).token||"",me=null;
+async function api(path,opt){
+  opt=opt||{};
+  const r=await fetch(path,{method:opt.method||"GET",headers:{"Content-Type":"application/json",...(token?{Authorization:"Bearer "+token}:{})},body:opt.body?JSON.stringify(opt.body):undefined});
+  let j={};try{j=await r.json()}catch(e){}
+  if(r.status===401){token="";try{localStorage.removeItem(KADM)}catch(e){}me=null;render();throw new Error(j.erro||"Entre de novo")}
+  if(!r.ok||j.ok===false)throw new Error(j.erro||("O servidor respondeu "+r.status));
+  return j;
+}
+function sair(){
+  token="";me=null;D=null;
+  try{localStorage.removeItem(KADM);const c=ler(KAPP);if(c.token){delete c.token;localStorage.setItem(KAPP,JSON.stringify(c))}}catch(e){}
+  render();
+}
+
+/* ---------- dados de todas as contas ---------- */
+let D=null,W=null,erro="",carregando=false;
+const V={tab:"contas",conta:null,q:"",soAtraso:false};
+const SORT={};
+function prep(c){
+  const t=today(),mes=t.slice(0,7);
+  const clients=c.clients.filter(x=>!x.sample),loans=c.loans.filter(x=>!x.sample),payments=c.payments.filter(x=>!x.sample);
+  const a={...c,clients,loans,payments};
+  const open=loans.filter(l=>l.status==="aberto"),late=open.filter(l=>l.nextDue<t);
+  const pm=payments.filter(p=>(p.date||"").slice(0,7)===mes);
+  Object.assign(a,{open,late,
+    naRua:open.reduce((s,l)=>s+remaining(l),0),
+    atrasado:late.reduce((s,l)=>s+parcel(l)+lateFee(l),0),
+    vencemHoje:open.filter(l=>l.nextDue===t).length,
+    recebidoMes:pm.reduce((s,p)=>s+p.amount,0),
+    rendimentoMes:pm.reduce((s,p)=>s+payProfit(p,loans),0)});
+  const byId=new Map(clients.map(x=>[x.id,x]));
+  a.clientRows=clients.map(cl=>{
+    const ol=open.filter(l=>l.clientId===cl.id),lt=ol.filter(l=>l.nextDue<t);
+    const prox=ol.map(l=>l.nextDue).sort()[0]||"";
+    return{conta:a,c:cl,abertos:ol.length,falta:ol.reduce((s,l)=>s+remaining(l),0),atraso:lt.reduce((s,l)=>s+parcel(l)+lateFee(l),0),
+      dias:lt.reduce((m,l)=>Math.max(m,daysLate(l)),0),prox,score:score(cl.id,a),
+      pago:payments.filter(p=>p.clientId===cl.id).reduce((s,p)=>s+p.amount,0)};
+  });
+  a.loanRows=loans.map(l=>({conta:a,l,c:byId.get(l.clientId)||{name:"(cliente apagado)"},falta:l.status==="aberto"?remaining(l):0,dias:l.status==="aberto"?daysLate(l):0,multa:l.status==="aberto"?lateFee(l):0}));
+  a.payRows=payments.map(p=>({conta:a,p,c:byId.get(p.clientId)||{name:"(cliente apagado)"}}));
+  return a;
+}
+async function carregar(){
+  if(carregando)return;carregando=true;
+  try{const j=await api("/api/admin/contas");D={hoje:j.hoje,contas:j.contas.map(prep),log:j.log};erro=""}
+  catch(e){erro=e.message}
+  carregando=false;render();
+  api("/api/admin/whats").then(j=>{W=j.whats;render()},()=>{});
+}
+
+/* ---------- tabela com ordenação ---------- */
+function tabela(id,cols,rows,opt){
+  opt=opt||{};
+  const s=SORT[id]||opt.sort||{};
+  if(s.k){const c=cols.find(x=>x.k===s.k);if(c){const v=c.v||(r=>r[c.k]);rows=rows.slice().sort((a,b)=>{const x=v(a),y=v(b);return(typeof x==="number"&&typeof y==="number"?x-y:String(x??"").localeCompare(String(y??""),"pt-BR"))*(s.d||1)})}}
+  if(!rows.length)return '<div class="empty">'+(opt.empty||"Nada por aqui.")+'</div>';
+  const lim=opt.limit&&rows.length>opt.limit?opt.limit:0;
+  if(lim)rows=rows.slice(0,lim);
+  return '<div class="tw"><table><thead><tr>'+cols.map(c=>'<th'+(c.n?' class="n"':'')+(c.nosort?'':' data-sort="'+id+':'+c.k+'"')+'>'+c.t+(s.k===c.k?'<span class="ar">'+(s.d<0?"▼":"▲")+'</span>':'')+'</th>').join("")+'</tr></thead><tbody>'+
+    rows.map(r=>{const go=opt.go&&opt.go(r);return '<tr'+(go?' class="go" tabindex="0" data-go="'+esc(go)+'"':'')+'>'+cols.map(c=>'<td'+(c.n?' class="n"':c.wrap?' class="wrap"':'')+'>'+(c.h?c.h(r):esc((c.v||(x=>x[c.k]))(r)))+'</td>').join("")+'</tr>'}).join("")+
+    '</tbody></table></div>'+(lim?'<div class="empty" style="padding:10px">Mostrando os '+lim+' primeiros. Use a busca para achar o resto.</div>':'');
+}
+const kpi=(l,v,s,tone)=>'<div class="kpi'+(tone?" "+tone:"")+'"><small>'+l+'</small><b class="num">'+v+'</b><span>'+esc(s)+'</span></div>';
+const has=(q,...xs)=>!q||xs.some(x=>String(x||"").toLowerCase().includes(q)||(q.replace(/\D/g,"")&&String(x||"").replace(/\D/g,"").includes(q.replace(/\D/g,""))));
+
+function whatsTag(id){
+  if(!W)return '<span class="tag">...</span>';
+  const w=W[id]||{};
+  if(w.estado==="open")return '<span class="tag ok" title="'+esc(w.numero||"")+'"><i></i>Conectado</span>';
+  if(w.estado==="connecting")return '<span class="tag warn"><i></i>Conectando</span>';
+  if(w.estado==="erro")return '<span class="tag bad" title="'+esc(w.erro||"")+'"><i></i>Erro</span>';
+  if(w.estado==="sem instância")return '<span class="tag">Nunca conectou</span>';
+  return '<span class="tag bad"><i></i>Desconectado</span>';
+}
+const envioTag=c=>c.envio.ligado?'<span class="tag ok">Ligado · '+esc(c.envio.horario)+'</span>':'<span class="tag">Desligado</span>';
+const statusTag=c=>c.admin?'<span class="tag ok">Administrador</span>':c.ativo?'<span class="tag ok">Ativa</span>':'<span class="tag bad">Bloqueada</span>';
+const contaCell=c=>'<b>'+esc(c.nome)+'</b><span class="sub">'+esc(c.login)+'</span>';
+
+/* ---------- telas ---------- */
+function vContas(){
+  const cs=D.contas,q=V.q.toLowerCase();
+  const sum=(f)=>cs.reduce((s,c)=>s+f(c),0);
+  const lateN=sum(c=>c.late.length),rows=cs.filter(c=>has(q,c.nome,c.login));
+  return '<div class="head"><div><h2>Contas</h2><p>'+cs.length+' contas · '+cs.filter(c=>c.ativo).length+' ativas · dados de '+fmtD(today())+'</p></div>'+
+    '<div class="tools"><input class="search" id="q" placeholder="Buscar conta" value="'+esc(V.q)+'"><button class="btn pri" data-act="nova">Cadastrar usuário</button></div></div>'+
+   '<div class="kpis">'+
+    kpi("Clientes",sum(c=>c.clients.length),"em todas as contas")+
+    kpi("Empréstimos abertos",sum(c=>c.open.length),sum(c=>c.vencemHoje)+" vencem hoje")+
+    kpi("Valor na rua",brl(sum(c=>c.naRua)),"falta receber")+
+    kpi("Atrasado agora",brl(sum(c=>c.atrasado)),lateN+(lateN===1?" parcela":" parcelas"),lateN?"bad":"")+
+    kpi("Recebido no mês",brl(sum(c=>c.recebidoMes)),"pagamentos lançados")+
+    kpi("Rendimento no mês",brl(sum(c=>c.rendimentoMes)),"porcentagem e multas","good")+
+   '</div>'+
+   '<div class="card">'+tabela("contas",[
+     {k:"nome",t:"Conta",h:contaCell},
+     {k:"status",t:"Situação",v:c=>c.admin?0:c.ativo?1:2,h:statusTag},
+     {k:"whats",t:"WhatsApp",v:c=>W&&W[c.id]?W[c.id].estado:"",h:c=>whatsTag(c.id)},
+     {k:"envio",t:"Envio automático",v:c=>c.envio.ligado?c.envio.horario:"9999",h:envioTag},
+     {k:"cli",t:"Clientes",n:1,v:c=>c.clients.length},
+     {k:"abertos",t:"Abertos",n:1,v:c=>c.open.length},
+     {k:"naRua",t:"Na rua",n:1,v:c=>c.naRua,h:c=>brl(c.naRua)},
+     {k:"atrasado",t:"Atrasado",n:1,v:c=>c.atrasado,h:c=>c.late.length?'<span class="late">'+brl(c.atrasado)+'</span><span class="sub">'+c.late.length+(c.late.length===1?" parcela":" parcelas")+'</span>':'-'},
+     {k:"rec",t:"Recebido no mês",n:1,v:c=>c.recebidoMes,h:c=>brl(c.recebidoMes)},
+     {k:"env",t:"Envios hoje",n:1,v:c=>c.enviadosHoje},
+     {k:"acesso",t:"Último acesso",v:c=>c.ultimo_acesso||"",h:c=>esc(quando(c.ultimo_acesso))}
+   ],rows,{go:c=>"conta:"+c.id,empty:"Nenhuma conta com esse nome."})+'</div>'+
+   '<p class="note">Clique numa conta para ver os clientes, empréstimos, pagamentos e envios dela. Clientes de exemplo não entram nas contas.</p>';
+}
+function vConta(id){
+  const c=D.contas.find(x=>x.id===id);if(!c){V.conta=null;return vContas()}
+  const log=D.log.filter(x=>x.usuario===c.id);
+  return '<button class="back" data-act="voltar">← Todas as contas</button>'+
+   '<div class="head"><div><h2>'+esc(c.nome)+'</h2><div class="meta">'+statusTag(c)+whatsTag(c.id)+'<span class="tag">Usuário: '+esc(c.login)+'</span><span class="tag">Envio: '+(c.envio.ligado?"ligado às "+esc(c.envio.horario):"desligado")+'</span><span class="tag">Último acesso: '+esc(quando(c.ultimo_acesso))+'</span></div></div>'+
+    (c.admin?'':'<div class="tools"><button class="btn ghost" data-act="senha" data-u="'+c.id+'">Trocar senha</button><button class="btn '+(c.ativo?"danger":"sec")+'" data-act="bloq" data-u="'+c.id+'">'+(c.ativo?"Bloquear":"Desbloquear")+'</button></div>')+'</div>'+
+   '<div class="kpis">'+
+    kpi("Clientes",c.clients.length,c.loans.length+" empréstimos no total")+
+    kpi("Empréstimos abertos",c.open.length,c.vencemHoje+" vencem hoje")+
+    kpi("Valor na rua",brl(c.naRua),"falta receber")+
+    kpi("Atrasado agora",brl(c.atrasado),c.late.length+(c.late.length===1?" parcela":" parcelas"),c.late.length?"bad":"")+
+    kpi("Recebido no mês",brl(c.recebidoMes),"pagamentos lançados")+
+    kpi("Rendimento no mês",brl(c.rendimentoMes),"porcentagem e multas","good")+
+   '</div>'+
+   '<div class="card"><h3>Clientes <span>'+c.clients.length+'</span></h3>'+tabela("cc",colsClientes(false),c.clientRows,{sort:{k:"atraso",d:-1},empty:"Esta conta ainda não tem clientes."})+'</div>'+
+   '<div class="card"><h3>Empréstimos <span>'+c.open.length+' abertos de '+c.loans.length+'</span></h3>'+tabela("cl",[
+     {k:"cli",t:"Cliente",v:r=>r.c.name,h:r=>'<b>'+esc(r.c.name)+'</b>'},
+     {k:"valor",t:"Valor",n:1,v:r=>r.l.principal,h:r=>brl(r.l.principal)},
+     {k:"pct",t:"%",n:1,v:r=>r.l.pct,h:r=>esc(String(r.l.pct).replace(".",","))+"%"},
+     {k:"parc",t:"Parcelas",n:1,v:r=>r.l.paid/r.l.n,h:r=>r.l.paid+"/"+r.l.n+'<span class="sub">'+brl(parcel(r.l))+'</span>'},
+     {k:"freq",t:"Frequência",v:r=>FREQ[r.l.freq]||r.l.freq},
+     {k:"venc",t:"Próximo vencimento",v:r=>r.l.status==="aberto"?r.l.nextDue:"9999",h:r=>r.l.status==="aberto"?fmtD(r.l.nextDue)+(r.dias?'<span class="sub late">'+r.dias+(r.dias===1?" dia":" dias")+' de atraso</span>':''):'-'},
+     {k:"multa",t:"Multa",n:1,v:r=>r.multa,h:r=>r.multa?'<span class="late">'+brl(r.multa)+'</span>':'-'},
+     {k:"falta",t:"Falta receber",n:1,v:r=>r.falta,h:r=>r.falta?brl(r.falta):'-'},
+     {k:"st",t:"Situação",v:r=>r.l.status!=="aberto"?2:r.dias?0:1,h:r=>r.l.status!=="aberto"?'<span class="tag ok">Quitado</span>':r.dias?'<span class="tag bad">Atrasado</span>':'<span class="tag">Em dia</span>'},
+     {k:"criado",t:"Criado em",v:r=>r.l.createdAt||"",h:r=>fmtD(r.l.createdAt)}
+   ],c.loanRows,{sort:{k:"st",d:1},empty:"Nenhum empréstimo."})+'</div>'+
+   '<div class="grid2">'+
+    '<div class="card"><h3>Pagamentos <span>últimos</span></h3>'+tabela("cp",[
+      {k:"data",t:"Data",v:r=>r.p.date,h:r=>fmtD(r.p.date)},
+      {k:"cli",t:"Cliente",v:r=>r.c.name},
+      {k:"tipo",t:"Tipo",v:r=>KIND[r.p.kind]||r.p.kind,h:r=>esc(KIND[r.p.kind]||r.p.kind)+(r.p.kind==="parcela"?" "+r.p.inst+"/"+r.p.n:"")+(r.p.lateDays?'<span class="sub late">'+r.p.lateDays+' dias de atraso</span>':'')},
+      {k:"valor",t:"Valor",n:1,v:r=>r.p.amount,h:r=>brl(r.p.amount)}
+    ],c.payRows,{sort:{k:"data",d:-1},limit:50,empty:"Nenhum pagamento lançado."})+'</div>'+
+    '<div class="card"><h3>Envios pelo WhatsApp <span>'+c.enviadosHoje+' hoje</span></h3>'+tabela("ce",[
+      {k:"at",t:"Quando",v:r=>r.at,h:r=>esc(quando(r.at))},
+      {k:"name",t:"Cliente"},
+      {k:"ok",t:"Resultado",v:r=>r.ok?1:0,h:r=>r.ok?'<span class="tag ok">Enviada</span>':'<span class="tag bad" title="'+esc(r.error||"")+'">Erro</span>'+(r.error?'<span class="sub">'+esc(String(r.error).slice(0,60))+'</span>':'')}
+    ],log,{sort:{k:"at",d:-1},limit:50,empty:"Nenhuma mensagem enviada ainda."})+'</div>'+
+   '</div>';
+}
+function colsClientes(comConta){
+  return[
+    ...(comConta?[{k:"conta",t:"Conta",v:r=>r.conta.nome,h:r=>contaCell(r.conta)}]:[]),
+    {k:"nome",t:"Cliente",v:r=>r.c.name,h:r=>'<b>'+esc(r.c.name)+'</b>'+(r.c.cpf?'<span class="sub">CPF '+esc(r.c.cpf)+'</span>':'')},
+    {k:"fone",t:"WhatsApp",v:r=>r.c.phone||"",h:r=>esc(fone(r.c.phone))},
+    {k:"score",t:"Score",n:1,v:r=>r.score,h:r=>scoreTag(r.score)},
+    {k:"abertos",t:"Abertos",n:1},
+    {k:"prox",t:"Próximo vencimento",v:r=>r.prox||"9999",h:r=>r.prox?fmtD(r.prox):'-'},
+    {k:"atraso",t:"Atrasado",n:1,v:r=>r.atraso,h:r=>r.atraso?'<span class="late">'+brl(r.atraso)+'</span><span class="sub">'+r.dias+(r.dias===1?" dia":" dias")+'</span>':'-'},
+    {k:"falta",t:"Falta receber",n:1,v:r=>r.falta,h:r=>r.falta?brl(r.falta):'-'},
+    {k:"pago",t:"Já pagou",n:1,v:r=>r.pago,h:r=>brl(r.pago)},
+    {k:"end",t:"Endereço",nosort:1,wrap:1,v:r=>r.c.address||"-"}
+  ];
+}
+function vClientes(){
+  const q=V.q.toLowerCase();
+  let rows=D.contas.flatMap(c=>c.clientRows).filter(r=>has(q,r.c.name,r.c.phone,r.c.cpf,r.conta.nome,r.conta.login));
+  if(V.soAtraso)rows=rows.filter(r=>r.atraso>0);
+  return '<div class="head"><div><h2>Clientes de todas as contas</h2><p>'+rows.length+(rows.length===1?" cliente":" clientes")+(V.soAtraso?" com atraso":"")+'</p></div>'+
+    '<div class="tools"><label class="chk"><input type="checkbox" id="so-atraso"'+(V.soAtraso?" checked":"")+'>Só com atraso</label><input class="search" id="q" placeholder="Nome, telefone, CPF ou conta" value="'+esc(V.q)+'"></div></div>'+
+   '<div class="card">'+tabela("todos",colsClientes(true),rows,{sort:{k:"atraso",d:-1},go:r=>"conta:"+r.conta.id,limit:500,empty:"Nenhum cliente encontrado."})+'</div>';
+}
+function vEnvios(){
+  const q=V.q.toLowerCase(),nome=new Map(D.contas.map(c=>[c.id,c]));
+  const rows=D.log.map(x=>({...x,conta:nome.get(x.usuario)})).filter(x=>x.conta&&has(q,x.name,x.conta.nome,x.conta.login));
+  const hoje=D.contas.reduce((s,c)=>s+c.enviadosHoje,0),erros=rows.filter(x=>!x.ok&&x.date===D.hoje).length;
+  return '<div class="head"><div><h2>Envios pelo WhatsApp</h2><p>'+hoje+' cobranças enviadas hoje'+(erros?' · <span class="late">'+erros+' com erro</span>':'')+' · últimas 300 mensagens</p></div>'+
+    '<div class="tools"><input class="search" id="q" placeholder="Buscar cliente ou conta" value="'+esc(V.q)+'"></div></div>'+
+   '<div class="card">'+tabela("envios",[
+     {k:"at",t:"Quando",v:r=>r.at,h:r=>esc(quando(r.at))},
+     {k:"conta",t:"Conta",v:r=>r.conta.nome,h:r=>contaCell(r.conta)},
+     {k:"name",t:"Cliente"},
+     {k:"ok",t:"Resultado",v:r=>r.ok?1:0,h:r=>r.ok?'<span class="tag ok">Enviada</span>':'<span class="tag bad">Erro</span>'},
+     {k:"error",t:"Detalhe",nosort:1,wrap:1,v:r=>r.error||""}
+   ],rows,{sort:{k:"at",d:-1},go:r=>"conta:"+r.conta.id,empty:"Nenhuma mensagem enviada ainda."})+'</div>';
+}
+function vLogin(msg){
+  return '<form class="login" id="flogin"><div class="brand"><div class="logo">C$</div><h1>CashDay</h1><small>Administração</small></div>'+
+   '<p class="note" style="margin:0">Entre com o usuário e a senha do administrador.</p>'+
+   '<div class="f"><label for="lu">Usuário</label><input id="lu" autocomplete="username" autocapitalize="off" required></div>'+
+   '<div class="f"><label for="lp">Senha</label><input id="lp" type="password" autocomplete="current-password" required></div>'+
+   (msg?'<div class="err">'+esc(msg)+'</div>':'')+
+   '<button class="btn pri" type="submit">Entrar</button><a href="/" class="note" style="text-align:center">Voltar para o app</a></form>';
+}
+
+const TABS={contas:"Contas",clientes:"Clientes",envios:"Envios"};
+let loginMsg="";
+function render(){
+  const app=$("#app");
+  if(!token||(me&&!me.admin)){app.innerHTML=vLogin(me&&!me.admin?"Esta conta não é de administrador.":loginMsg);return}
+  if(!me){app.innerHTML='<div class="login"><p class="note">Carregando...</p></div>';return}
+  const body=!D?'<div class="empty">'+(erro?'<span class="err">Não carregou: '+esc(erro)+'</span>':'Carregando as contas...')+'</div>':
+    V.tab==="contas"?(V.conta?vConta(V.conta):vContas()):V.tab==="clientes"?vClientes():vEnvios();
+  const foco=document.activeElement&&document.activeElement.id,pos=foco&&document.activeElement.selectionStart;
+  app.innerHTML='<header class="bar"><div class="bar-in"><div class="brand"><div class="logo">C$</div><h1>CashDay</h1><small>Administração</small></div>'+
+   '<nav class="tabs">'+Object.keys(TABS).map(k=>'<button data-tab="'+k+'" aria-pressed="'+(V.tab===k)+'">'+TABS[k]+'</button>').join("")+'</nav>'+
+   '<div class="who"><span>'+esc(me.nome)+'</span><button class="btn ghost sm" data-act="atualizar">Atualizar</button><a class="btn ghost sm" href="/">Abrir o app</a><button class="btn danger sm" data-act="sair">Sair</button></div></div></header>'+
+   '<main>'+body+'</main>';
+  if(foco==="q"){const i=$("#q");if(i){i.focus();try{i.setSelectionRange(pos,pos)}catch(e){}}}
+}
+function toast(t){const e=$("#toast");e.textContent=t;e.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(()=>e.hidden=true,3000)}
+
+/* ---------- janelas ---------- */
+function dialogo(html,onSubmit){
+  const d=$("#dlg");d.innerHTML='<form method="dialog">'+html+'<div class="err" id="derr" hidden></div></form>';
+  d.querySelector("form").onsubmit=async e=>{
+    if(e.submitter&&e.submitter.value==="cancel")return;
+    e.preventDefault();const b=e.submitter;if(b)b.disabled=true;
+    try{await onSubmit();d.close()}catch(err){const x=$("#derr");x.textContent=err.message;x.hidden=false}
+    if(b)b.disabled=false;
+  };
+  d.showModal();const f=d.querySelector("input");if(f)f.focus();
+}
+const botoes=ok=>'<div class="acts"><button class="btn ghost" value="cancel" formnovalidate>Cancelar</button><button class="btn pri" value="ok">'+ok+'</button></div>';
+function nova(){
+  dialogo('<h3>Cadastrar usuário</h3><p class="note" style="margin:0">A pessoa entra no CashDay só com o usuário e a senha. Cada um vê apenas os próprios clientes.</p>'+
+   '<div class="f"><label for="u-nome">Nome</label><input id="u-nome" required autocomplete="off"></div>'+
+   '<div class="f"><label for="u-login">Usuário (para entrar)</label><input id="u-login" required autocapitalize="off" autocomplete="off" placeholder="ex.: joao"></div>'+
+   '<div class="f"><label for="u-pw">Senha (mínimo 6)</label><input id="u-pw" required minlength="6" autocomplete="new-password"></div>'+botoes("Cadastrar"),
+   async()=>{const body={nome:$("#u-nome").value.trim(),login:$("#u-login").value.trim().toLowerCase(),senha:$("#u-pw").value};
+     await api("/api/usuarios",{method:"POST",body});toast("Usuário "+body.login+" cadastrado");carregar()});
+}
+function senha(id){
+  const c=D.contas.find(x=>x.id===id);
+  dialogo('<h3>Nova senha para '+esc(c.nome)+'</h3><div class="f"><label for="u-npw">Nova senha (mínimo 6)</label><input id="u-npw" required minlength="6" autocomplete="new-password"></div>'+
+   '<p class="note" style="margin:0">A pessoa sai dos aparelhos onde estava e entra de novo com a senha nova.</p>'+botoes("Salvar senha"),
+   async()=>{await api("/api/usuarios/"+id,{method:"PUT",body:{senha:$("#u-npw").value}});toast("Senha trocada. Passe a nova senha para a pessoa.")});
+}
+function bloq(id){
+  const c=D.contas.find(x=>x.id===id);
+  dialogo('<h3>'+(c.ativo?"Bloquear ":"Desbloquear ")+esc(c.nome)+'?</h3><p class="note" style="margin:0">'+(c.ativo?"A pessoa não consegue mais entrar e o robô para de cobrar os clientes dela. Os dados continuam guardados.":"A pessoa volta a entrar com o usuário e a senha dela.")+'</p>'+botoes(c.ativo?"Bloquear":"Desbloquear"),
+   async()=>{await api("/api/usuarios/"+id,{method:"PUT",body:{ativo:!c.ativo}});toast(c.ativo?c.nome+" bloqueado":c.nome+" desbloqueado");carregar()});
+}
+
+/* ---------- eventos ---------- */
+document.addEventListener("click",e=>{
+  const t=e.target.closest("[data-tab],[data-act],[data-sort],[data-go]");if(!t)return;
+  if(t.dataset.tab){V.tab=t.dataset.tab;V.conta=null;V.q="";render();window.scrollTo(0,0);return}
+  if(t.dataset.sort){const[id,k]=t.dataset.sort.split(":"),s=SORT[id]||{};SORT[id]={k,d:s.k===k?-(s.d||1):1};render();return}
+  if(t.dataset.go){const[k,v]=t.dataset.go.split(":");if(k==="conta"){V.tab="contas";V.conta=Number(v);V.q="";render();window.scrollTo(0,0)}return}
+  const a=t.dataset.act;
+  if(a==="voltar"){V.conta=null;render()}
+  else if(a==="atualizar"){toast("Atualizando...");carregar()}
+  else if(a==="sair")sair();
+  else if(a==="nova")nova();
+  else if(a==="senha")senha(Number(t.dataset.u));
+  else if(a==="bloq")bloq(Number(t.dataset.u));
+});
+document.addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target.dataset&&e.target.dataset.go)e.target.click()});
+document.addEventListener("input",e=>{if(e.target.id==="q"){V.q=e.target.value;render()}});
+document.addEventListener("change",e=>{if(e.target.id==="so-atraso"){V.soAtraso=e.target.checked;render()}});
+document.addEventListener("submit",async e=>{
+  if(e.target.id!=="flogin")return;e.preventDefault();
+  try{
+    const r=await fetch("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({usuario:$("#lu").value,senha:$("#lp").value})});
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok||!j.ok)throw new Error(j.erro||"Não entrou");
+    if(!j.usuario.admin)throw new Error("Esta conta não é de administrador.");
+    token=j.token;me=j.usuario;loginMsg="";try{localStorage.setItem(KADM,JSON.stringify({token}))}catch(err){}
+    render();carregar();
+  }catch(err){loginMsg=err.message;token="";me=null;render()}
+});
+
+async function iniciar(){
+  render();if(!token)return;
+  try{const j=await api("/api/eu");me=j.usuario;render();if(me.admin)carregar()}catch(e){loginMsg=token?e.message:"";render()}
+}
+iniciar();
+setInterval(()=>{if(me&&me.admin&&!document.hidden&&!$("#dlg").open)carregar()},60000);
+</script>
+</body>
+</html>

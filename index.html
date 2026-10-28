@@ -52,6 +52,8 @@ a{color:var(--accent)}
 .logo{width:34px;height:34px;border-radius:10px;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;font-family:var(--display);font-weight:800;font-size:17px}
 .brand h1{font-size:24px;font-weight:800}
 .date{color:var(--muted);font-size:14px;text-align:right}
+.topr{display:flex;align-items:center;gap:10px}
+.out{display:flex;align-items:center;gap:6px;min-height:36px;padding:0 12px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--muted);font-size:14px;font-weight:600}
 
 /* resumo */
 .sum{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:18px}
@@ -329,8 +331,9 @@ function cloudCard(){
    '<button class="btn pri" data-act="cloudIn">Conectar</button></div>';
   if(SERVER)return '<div class="card"><h3>Sua conta</h3>'+(C.user?'<div class="num" style="font-size:14px">Você entrou como <b>'+esc(C.user.nome)+'</b> ('+esc(C.user.login)+')</div>':'')+
    '<div class="note">'+(cloud.state==="err"?'<span style="color:var(--late)">Sem conexão com o banco de dados.</span> Tento salvar de novo sozinho.':'Tudo é salvo direto no banco de dados, na hora. Um backup automático é feito a cada hora.')+'</div>'+
-   '<div class="acts"><button class="btn ghost" data-act="cloudBackups">Backups</button></div>'+
-   '<button class="link" data-act="cloudOut" style="align-self:flex-start;color:var(--muted)">Sair deste aparelho</button></div>';
+   '<div class="acts">'+(C.user&&!C.user.admin?'<button class="btn sec2" data-act="myPw">Trocar senha</button>':'')+'<button class="btn ghost" data-act="cloudBackups">Backups</button></div>'+
+   (C.user&&C.user.admin?'<span class="hint" style="font-size:12px;color:var(--muted)">A senha do administrador fica na variável APP_SENHA do Railway.</span>':'')+
+   '<button class="btn danger block" data-act="cloudOut">Sair da conta</button></div>';
   const when=cloud.at?cloud.at.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}):"-";
   return '<div class="card"><h3>'+(SERVER?'Sua conta':'Nuvem (Railway)')+'</h3>'+(SERVER&&C.user?'<div class="num" style="font-size:14px">Você entrou como <b>'+esc(C.user.nome)+'</b> ('+esc(C.user.login)+')</div>':'')+'<div class="note">'+(cloud.state==="err"?'<span style="color:var(--late)">Sem conexão: '+esc(cloud.err)+'</span> Suas mudanças ficam no celular e sobem quando a conexão voltar.':'<b style="color:var(--ink)">Conectado.</b> Tudo salvo na nuvem. Última sincronização: '+when+'.')+
    (SERVER?'':'<div style="font-size:12px;margin-top:4px;overflow-wrap:anywhere">'+esc(C.url)+'</div>')+'</div>'+
@@ -400,7 +403,9 @@ function loadUsers(){if(!isAdm())return Promise.resolve();return cloudFetch("/ap
 function admCard(){
   const n=USERS?USERS.filter(u=>!u.admin):null,at=n?n.filter(u=>u.ativo).length:0;
   return '<div class="card"><h3>Administração</h3><div class="num" style="font-size:15px">'+(n?'<b>'+n.length+'</b> '+(n.length===1?'usuário cadastrado':'usuários cadastrados')+(n.length?' · '+at+' '+(at===1?'ativo':'ativos'):''):'Carregando usuários...')+'</div>'+
-   '<div class="acts"><button class="btn pri" data-act="admNew">Cadastrar usuário</button><button class="btn sec2" data-act="admList">Ver usuários</button></div></div>';
+   '<a class="btn pri block" href="/admin" target="_blank" rel="noopener">Abrir painel do administrador</a>'+
+   '<div class="acts"><button class="btn sec2" data-act="admNew">Cadastrar usuário</button><button class="btn ghost" data-act="admList">Ver usuários</button></div>'+
+   '<span class="hint" style="font-size:12px;color:var(--muted)">O painel é feito para o computador: mostra todas as contas, os clientes e os empréstimos de cada uma.</span></div>';
 }
 const quando=t=>{if(!t)return "nunca entrou";const d=new Date(t);return d.toLocaleDateString("pt-BR")+" "+d.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"})};
 function admList(){
@@ -532,6 +537,7 @@ const I={
   cash:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/></svg>',
   back:'<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>',
   chart:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15v2M11 11v6M15 7v10M19 12v5"/></svg>',
+  out:'<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>',
   chev:'<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="color:var(--muted);flex-shrink:0"><path d="M9 6l6 6-6 6"/></svg>'
 };
 
@@ -571,7 +577,8 @@ function render(){
 
 function header(){
   const d=new Date().toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"});
-  return '<div class="top"><div class="brand"><div class="logo">C$</div><h1>CashDay</h1></div><div class="date">'+esc(d.charAt(0).toUpperCase()+d.slice(1))+'</div></div>'+
+  return '<div class="top"><div class="brand"><div class="logo">C$</div><h1>CashDay</h1></div><div class="topr"><div class="date">'+esc(d.charAt(0).toUpperCase()+d.slice(1))+'</div>'+
+    (SERVER&&cloudOn()?'<button class="out" data-act="cloudOut" aria-label="Sair da conta">'+I.out+'<span>Sair</span></button>':'')+'</div></div>'+
     (SERVER&&cloud.state==="err"&&ready?'<div class="banner" style="color:var(--late)"><span>Sem conexão com o banco de dados. A última mudança ainda não foi salva; tento de novo sozinho.</span></div>':'')+
     (S.sample?'<div class="banner"><span>Você está vendo clientes de exemplo.</span><button data-act="clearSample">Apagar exemplos</button></div>':'');
 }
@@ -883,9 +890,6 @@ function vAjustes(){
    roboStatusHTML()+
    '<div class="acts"><button class="btn pri" data-act="saveRobo">Salvar e conectar</button><button class="btn sec2" data-act="testRobo">Mandar teste</button></div>'+
    '<span class="hint" style="font-size:12px;color:var(--muted)">O robô manda uma mensagem a cada 2 minutos, entre o horário escolhido e as 21h, e nunca cobra a mesma pessoa duas vezes no dia. Clientes de exemplo nunca recebem.</span></div>'))+
-  '<div class="card"><h3>Aviso no iPhone nesse horário</h3><div class="note" style="background:transparent;padding:0">Para o iPhone te avisar todo dia na hora da cobrança. Leva 1 minuto:<ol>'+
-   '<li>Abra o app <b>Atalhos</b> e toque em <b>Automação</b>.</li><li>Toque em <b>+</b>, escolha <b>Horário do Dia</b>, coloque <b>'+esc(s.chargeTime||"09:00")+'</b> e <b>Diariamente</b>. Marque <b>Executar Imediatamente</b>.</li>'+
-   '<li>Adicione a ação <b>Mostrar Notificação</b> com o texto "Hora de cobrar: abra o CashDay".</li></ol></div></div>'+
   (SERVER?'':'<div class="card"><h3>Cópia de segurança</h3><div class="note" style="background:transparent;padding:0">Os dados ficam guardados neste celular'+(cloudOn()?' e na nuvem, com backup automático':'')+'. Copie o backup de vez em quando e mande para você mesmo no WhatsApp ou cole numa nota.</div>'+
    '<div class="acts"><button class="btn sec2" data-act="copyBackup">Copiar backup</button><button class="btn ghost" data-act="restore">Restaurar</button></div></div>')+
   '<div class="card"><h3>Apagar tudo</h3><button class="btn danger" data-act="wipe">Apagar todos os dados</button></div>';
@@ -1105,6 +1109,15 @@ document.addEventListener("click",e=>{
     cloudFetch("/api/usuarios",{method:"POST",body}).then(j=>{if(!j.ok)throw new Error(j.erro);closeSheet();toast("Usuário "+body.login+" cadastrado");loadUsers()},e=>toast(e.message))}
   else if(a==="admPw"){const u=(USERS||[]).find(x=>x.id==b.dataset.u);if(!u)return;
     sheet('<h3>Nova senha para '+esc(u.nome)+'</h3><div class="f"><label for="u-npw">Nova senha (mínimo 6)</label><input id="u-npw" type="text" autocapitalize="off" autocorrect="off" autocomplete="new-password"></div><button class="btn pri block" data-act="admPwSave" data-u="'+u.id+'">Salvar senha</button>')}
+  else if(a==="myPw"){sheet('<h3>Trocar minha senha</h3>'+
+    '<div class="f"><label for="my-at">Senha atual</label><input id="my-at" type="password" autocomplete="current-password"></div>'+
+    '<div class="f"><label for="my-nv">Nova senha (mínimo 6)</label><input id="my-nv" type="password" autocomplete="new-password"></div>'+
+    '<div class="f"><label for="my-cf">Repita a nova senha</label><input id="my-cf" type="password" autocomplete="new-password"></div>'+
+    '<span class="hint" style="font-size:13px;color:var(--muted)">Nos outros aparelhos você vai precisar entrar de novo com a senha nova.</span>'+
+    '<button class="btn pri block" data-act="myPwSave">Salvar nova senha</button>')}
+  else if(a==="myPwSave"){const at=$("#my-at").value,nv=$("#my-nv").value;
+    if(!at||!nv){toast("Preencha a senha atual e a nova");return}if(nv.length<6){toast("A nova senha precisa ter pelo menos 6 caracteres");return}if(nv!==$("#my-cf").value){toast("As duas senhas novas não são iguais");return}
+    cloudFetch("/api/senha",{method:"POST",body:{atual:at,nova:nv}}).then(j=>{if(!j.ok)throw new Error(j.erro);C.token=j.token;saveC();closeSheet();toast("Senha trocada")},e=>toast(e.message))}
   else if(a==="admPwSave"){cloudFetch("/api/usuarios/"+b.dataset.u,{method:"PUT",body:{senha:$("#u-npw").value}}).then(j=>{if(!j.ok)throw new Error(j.erro);closeSheet();toast("Senha trocada. Passe a nova senha para a pessoa.")},e=>toast(e.message))}
   else if(a==="admBlock"){const u=(USERS||[]).find(x=>x.id==b.dataset.u);if(!u)return;
     cloudFetch("/api/usuarios/"+u.id,{method:"PUT",body:{ativo:!u.ativo}}).then(j=>{if(!j.ok)throw new Error(j.erro);toast(u.ativo?u.nome+" bloqueado":u.nome+" desbloqueado");return loadUsers()}).then(admList,e=>toast(e.message))}
