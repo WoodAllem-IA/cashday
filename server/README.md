@@ -25,6 +25,18 @@ fica liberado com o envio ligado. `HORARIO_COBRANCA` e `ENVIO_AUTOMATICO` não t
 
 O administrador entra com o usuário `admin` (ou o de `ADMIN_USUARIO`) e a senha de `APP_SENHA`. Em Ajustes > Administração ele vê quantos usuários existem, cadastra novos, troca a senha e bloqueia. Cada usuário vê só os próprios clientes.
 
+Cada usuário troca a própria senha em Ajustes > Sua conta > Trocar senha (os outros aparelhos dele precisam entrar de novo). O botão **Sair** fica no topo do app.
+
+### Painel do administrador
+
+Abra `<endereço do Railway>/admin` no computador (ou toque em **Abrir painel do administrador** em Ajustes). Só entra o administrador. O painel mostra:
+
+- **Contas**: todas as contas com situação, WhatsApp, envio automático, clientes, valor na rua, atrasado, recebido no mês, envios de hoje e último acesso. Clique numa conta para ver os clientes, empréstimos, pagamentos e envios dela, trocar a senha ou bloquear.
+- **Clientes**: os clientes de todas as contas numa tabela só, com busca e filtro de quem está atrasado.
+- **Envios**: as últimas mensagens que o robô mandou, de todas as contas.
+
+As colunas das tabelas ordenam com um clique no título. Os dados se atualizam sozinhos a cada minuto.
+
 ## WhatsApp de cada conta
 
 Cada conta (o administrador e cada usuário) tem a própria instância na Evolution e conecta o próprio WhatsApp:

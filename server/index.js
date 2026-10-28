@@ -240,7 +240,7 @@ async function readBody(req, limit) {
   return s ? JSON.parse(s) : {};
 }
 const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".json": "application/json", ".webmanifest": "application/manifest+json", ".png": "image/png" };
-const PUBLIC = new Set(["/index.html", "/manifest.webmanifest", "/sw.js", "/icon-180.png", "/icon-192.png", "/icon-512.png"]);
+const PUBLIC = new Set(["/index.html", "/admin.html", "/manifest.webmanifest", "/sw.js", "/icon-180.png", "/icon-192.png", "/icon-512.png"]);
 
 async function api(req, res, url) {
   const p = url.pathname;
@@ -261,6 +261,16 @@ async function api(req, res, url) {
   if (p === "/api/eu") {
     db.query("update usuarios set ultimo_acesso=now() where id=$1", [uid]).catch(() => {});
     return send(res, 200, { ok: true, usuario: publico(eu) });
+  }
+  // a própria conta troca a senha; os outros aparelhos dela precisam entrar de novo
+  if (p === "/api/senha" && req.method === "POST") {
+    const b = await readBody(req, 1e4);
+    if (eu.id === ADMIN_ID) return send(res, 400, { ok: false, erro: "A senha do administrador fica na variável APP_SENHA do Railway" });
+    if (!confere(b.atual, eu.senha)) { await new Promise(r => setTimeout(r, 800)); return send(res, 400, { ok: false, erro: "A senha atual está errada" }); }
+    if (String(b.nova || "").length < 6) return send(res, 400, { ok: false, erro: "A nova senha precisa ter pelo menos 6 caracteres" });
+    const senha = hashSenha(b.nova);
+    await db.query("update usuarios set senha=$2 where id=$1", [uid, senha]);
+    return send(res, 200, { ok: true, token: makeToken({ ...eu, senha }) });
   }
 
   /* ---------- administração de usuários (só o administrador) ---------- */
@@ -295,6 +305,37 @@ async function api(req, res, url) {
       if (b.ativo !== undefined) await db.query("update usuarios set ativo=$2 where id=$1", [id, !!b.ativo]);
       if (b.nome) await db.query("update usuarios set nome=$2 where id=$1", [id, String(b.nome).trim().slice(0, 80)]);
       return send(res, 200, { ok: true });
+    }
+    return send(res, 404, { ok: false, erro: "Caminho desconhecido" });
+  }
+
+  /* ---------- painel do administrador: todas as contas, clientes e envios ---------- */
+  if (p.startsWith("/api/admin/")) {
+    if (!eu.admin) return send(res, 403, { ok: false, erro: "Só o administrador pode fazer isso" });
+    if (p === "/api/admin/contas") {
+      const { date } = nowBR();
+      const us = (await db.query(`select u.id, u.login, u.nome, u.admin, u.ativo, u.criado, u.ultimo_acesso, u.instancia, e.atualizado,
+        e.dados->'clients' as clients, e.dados->'loans' as loans, e.dados->'payments' as payments, e.dados->'settings' as settings
+        from usuarios u left join estado e on e.id=u.id order by u.admin desc, u.nome`)).rows;
+      const hoje = Object.fromEntries((await db.query("select usuario, count(*)::int as n from enviados where dia=$1 group by usuario", [date])).rows.map(r => [r.usuario, r.n]));
+      const log = (await db.query("select usuario, em, dia, nome, ok, erro from envio_log order by id desc limit 300")).rows
+        .map(r => ({ usuario: r.usuario, at: new Date(r.em).toISOString(), date: r.dia, name: r.nome, ok: r.ok, error: r.erro }));
+      const contas = us.map(u => {
+        const cfg = config({ settings: u.settings }, u);
+        return {
+          id: u.id, login: u.login, nome: u.nome, admin: u.admin, ativo: u.ativo, criado: u.criado, ultimo_acesso: u.ultimo_acesso, atualizado: u.atualizado,
+          whats: !!instanciaDe(u), envio: { ligado: cfg.ligado, horario: cfg.horario }, enviadosHoje: hoje[u.id] || 0,
+          clients: u.clients || [], loans: u.loans || [], payments: u.payments || []
+        };
+      });
+      return send(res, 200, { ok: true, hoje: date, contas, log });
+    }
+    // estado do WhatsApp de cada conta (separado: depende da Evolution e pode demorar)
+    if (p === "/api/admin/whats") {
+      const us = (await db.query("select * from usuarios")).rows;
+      const out = {};
+      await Promise.all(us.map(async u => { out[u.id] = await whatsStatus(u).catch(e => ({ estado: "erro", erro: e.message })); }));
+      return send(res, 200, { ok: true, whats: out });
     }
     return send(res, 404, { ok: false, erro: "Caminho desconhecido" });
   }
@@ -392,7 +433,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "OPTIONS") { res.writeHead(204, CORS); return res.end(); }
     if (url.pathname.startsWith("/api/")) return await api(req, res, url);
     // o próprio app também fica disponível no endereço do Railway
-    const f = url.pathname === "/" ? "/index.html" : url.pathname;
+    const f = url.pathname === "/" ? "/index.html" : url.pathname.replace(/\/+$/, "") === "/admin" ? "/admin.html" : url.pathname;
     if (!PUBLIC.has(f)) { res.writeHead(404); return res.end("Não encontrado"); }
     let body = await fs.readFile(path.join(ROOT, f));
     // avisa o app que ele está no servidor: endereço e opções vêm das variáveis do Railway
