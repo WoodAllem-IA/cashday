@@ -725,13 +725,12 @@ function situacaoText(cid){
   if(!ls.length)return txt+"\n\nNenhuma dívida em aberto.";
   let tot=0;
   ls.forEach((l,i)=>{
-    const dl=daysLate(l),lf=lateFee(l),pago=S.payments.filter(p=>p.loanId===l.id).reduce((s,p)=>s+p.amount,0),falta=l.n-l.paid;
+    const dl=daysLate(l),lf=lateFee(l),falta=l.n-l.paid;
     tot+=remaining(l)+lf;
     txt+="\n\n"+(ls.length>1?(i+1)+") ":"")+"Empréstimo de "+brl(l.principal)+(l.createdAt?" (feito em "+fmtD(l.createdAt)+")":"")+
       "\nPorcentagem: "+String(l.pct).replace(".",",")+"% · total "+brl(total(l))+
       "\nParcelas: "+l.paid+" de "+l.n+" pagas · falta"+(falta===1?" 1":"m "+falta)+
       "\nValor da parcela: "+brl(parcel(l))+
-      (pago?"\nJá pago: "+brl(pago):"")+
       "\nPróximo vencimento: "+fmtD(l.nextDue)+(l.nextDue===t?" (hoje)":"")+
       (dl?"\nAtrasado: "+dl+(dl===1?" dia":" dias")+" · multa até hoje "+brl(lf):"")+
       "\nFalta pagar: "+brl(remaining(l))+(lf?" + multa "+brl(lf):"");
