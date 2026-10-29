@@ -721,21 +721,20 @@ async function apiSend(b){
 function situacaoText(cid){
   const t=today();
   const ls=S.loans.filter(l=>l.clientId===cid&&l.status==="aberto").sort((a,b)=>a.nextDue.localeCompare(b.nextDue));
-  let txt="Situação em "+fmtD(t)+":";
-  if(!ls.length)return txt+"\n\nNenhuma dívida em aberto.";
+  let txt="Sua situação hoje ("+fmtD(t)+"):";
+  if(!ls.length)return txt+"\nNenhuma dívida em aberto.";
   let tot=0;
+  // só as linhas que o usuário pediu; com mais de um empréstimo, uma linha em branco separa cada um
   ls.forEach((l,i)=>{
-    const dl=daysLate(l),lf=lateFee(l),falta=l.n-l.paid;
+    const dl=daysLate(l),lf=lateFee(l);
     tot+=remaining(l)+lf;
-    txt+="\n\n"+(ls.length>1?(i+1)+") ":"")+"Empréstimo de "+brl(l.principal)+(l.createdAt?" (feito em "+fmtD(l.createdAt)+")":"")+
+    txt+=(ls.length>1?"\n\n"+(i+1)+") ":"\n")+"Empréstimo de "+brl(l.principal)+(l.createdAt?" (feito em "+fmtD(l.createdAt)+")":"")+
       "\nPorcentagem: "+String(l.pct).replace(".",",")+"% · total "+brl(total(l))+
-      "\nParcelas: "+l.paid+" de "+l.n+" pagas · falta"+(falta===1?" 1":"m "+falta)+
-      "\nValor da parcela: "+brl(parcel(l))+
       "\nPróximo vencimento: "+fmtD(l.nextDue)+(l.nextDue===t?" (hoje)":"")+
       (dl?"\nAtrasado: "+dl+(dl===1?" dia":" dias")+" · multa até hoje "+brl(lf):"")+
       "\nFalta pagar: "+brl(remaining(l))+(lf?" + multa "+brl(lf):"");
   });
-  return txt+"\n\nTotal em aberto hoje: "+brl(r2(tot));
+  return txt+(ls.length>1?"\n\n":"\n")+"Total em aberto hoje: "+brl(r2(tot));
 }
 const sitHref=(cid,text)=>"https://wa.me/"+waNumber((client(cid)||{}).phone)+"?text="+encodeURIComponent(text);
 function situacaoForm(cid){
