@@ -945,11 +945,20 @@ function clientForm(c){
    '<button class="btn pri" type="submit">Salvar</button></div>'+(c.id?'<input type="hidden" id="c-id" value="'+c.id+'">':'')+'</form>');
 }
 
+// Emprestar: escolhe um cliente já cadastrado (com busca) ou cadastra um novo
+const pickRow=c=>'<button class="cli" data-act="newLoan" data-c="'+c.id+'"><div class="av">'+esc(c.name[0].toUpperCase())+'</div><div class="info"><b>'+esc(c.name)+'</b>'+
+  (c.phone||c.cpf?'<span class="num">'+esc(c.phone?fmtPhone(c.phone):fmtCPF(c.cpf))+'</span>':'')+'</div>'+I.chev+'</button>';
+const semAcento=t=>String(t||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+function pickList(q){
+  q=semAcento(q).trim();const qd=q.replace(/\D/g,"");
+  const cs=S.clients.filter(c=>!q||semAcento(c.name).includes(q)||(qd&&(String(c.phone||"").includes(qd)||String(c.cpf||"").includes(qd)))).sort((a,b)=>a.name.localeCompare(b.name,"pt-BR"));
+  return cs.length?cs.map(pickRow).join(""):'<div class="empty">'+(q?'Nenhum cliente encontrado. Toque em Novo cliente para cadastrar.':'Nenhum cliente cadastrado ainda.')+'</div>';
+}
 function pickClientForLoan(){
-  if(!S.clients.length){clientForm();toast("Cadastre o cliente primeiro");return}
-  const cs=[...S.clients].sort((a,b)=>a.name.localeCompare(b.name,"pt-BR"));
-  sheet('<h3>Emprestar para quem?</h3><div class="list">'+cs.map(c=>'<button class="cli" data-act="newLoan" data-c="'+c.id+'"><div class="av">'+esc(c.name[0].toUpperCase())+'</div><div class="info"><b>'+esc(c.name)+'</b></div>'+I.chev+'</button>').join("")+
-   '</div><button class="btn sec2 block" style="margin-top:12px" data-act="newClient">Novo cliente</button>');
+  sheet('<h3>Emprestar para quem?</h3>'+
+   '<button class="btn pri block" style="margin:10px 0 12px" data-act="newClient">'+I.plus.replace('stroke-width="2.6"','stroke-width="2.6" width="18" height="18"')+'Novo cliente</button>'+
+   (S.clients.length?'<input class="search" id="lq" type="search" placeholder="Pesquisar por nome, telefone ou CPF" autocomplete="off">':'')+
+   '<div class="list" id="llist">'+pickList("")+'</div>');
 }
 
 function loanForm(cid){
@@ -1174,6 +1183,7 @@ document.addEventListener("click",e=>{
 document.addEventListener("input",e=>{
   const id=e.target.id;
   if(id==="m-txt"){const l=S.loans.find(x=>x.id===e.target.dataset.l),s=$("#m-send");if(l&&s&&s.tagName==="A")s.href=waHref(l,e.target.value);return}
+  if(id==="lq"){$("#llist").innerHTML=pickList(e.target.value);return}
   if(id==="q"){view.q=e.target.value;const q=view.q.toLowerCase();
     const list=S.clients.filter(c=>!q||c.name.toLowerCase().includes(q)||String(c.phone).includes(q)||String(c.cpf||"").includes(q.replace(/\D/g,"")||"#")).sort((a,b)=>a.name.localeCompare(b.name,"pt-BR"));
     $("#clist").innerHTML=list.length?list.map(cliRow).join(""):'<div class="empty">Nenhum cliente com esse nome.</div>'}
