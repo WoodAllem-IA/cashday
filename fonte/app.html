@@ -701,6 +701,44 @@ async function apiSend(b){
   }catch(e){b.disabled=false;b.innerHTML=old;toast("Não enviou: "+(e.message||e))}
 }
 
+/* ---------- situação atual do cliente (resumo para mandar no WhatsApp) ---------- */
+function situacaoText(cid){
+  const t=today();
+  const ls=S.loans.filter(l=>l.clientId===cid&&l.status==="aberto").sort((a,b)=>a.nextDue.localeCompare(b.nextDue));
+  let txt="Situação em "+fmtD(t)+":";
+  if(!ls.length)return txt+"\n\nNenhuma dívida em aberto.";
+  let tot=0;
+  ls.forEach((l,i)=>{
+    const dl=daysLate(l),lf=lateFee(l),pago=S.payments.filter(p=>p.loanId===l.id).reduce((s,p)=>s+p.amount,0),falta=l.n-l.paid;
+    tot+=remaining(l)+lf;
+    txt+="\n\n"+(ls.length>1?(i+1)+") ":"")+"Empréstimo de "+brl(l.principal)+(l.createdAt?" (feito em "+fmtD(l.createdAt)+")":"")+
+      "\nPorcentagem: "+String(l.pct).replace(".",",")+"% · total "+brl(total(l))+
+      "\nParcelas: "+l.paid+" de "+l.n+" pagas · falta"+(falta===1?" 1":"m "+falta)+
+      "\nValor da parcela: "+brl(parcel(l))+
+      (pago?"\nJá pago: "+brl(pago):"")+
+      "\nPróximo vencimento: "+fmtD(l.nextDue)+(l.nextDue===t?" (hoje)":"")+
+      (dl?"\nAtrasado: "+dl+(dl===1?" dia":" dias")+" · multa até hoje "+brl(lf):"")+
+      "\nFalta pagar: "+brl(remaining(l))+(lf?" + multa "+brl(lf):"");
+  });
+  return txt+"\n\nTotal em aberto hoje: "+brl(r2(tot));
+}
+const sitHref=(cid,text)=>"https://wa.me/"+waNumber((client(cid)||{}).phone)+"?text="+encodeURIComponent(text);
+function situacaoForm(cid){
+  const c=client(cid);if(!c)return;const txt=situacaoText(cid);
+  if(String(c.phone||"").replace(/\D/g,"").length<10){toast("Esse cliente está sem WhatsApp com DDD. Toque em Editar para colocar.");return}
+  sheet('<h3>Situação de '+esc(c.name.replace(/\s*\(exemplo\)/,""))+'</h3>'+
+   '<div class="f"><label for="s-txt">Mensagem (pode editar antes de enviar)</label><textarea id="s-txt" data-c="'+cid+'" rows="12" style="min-height:280px">'+esc(txt)+'</textarea></div>'+
+   (viaApi()?'<button class="btn wa block" id="s-send" data-act="sitApi" data-c="'+cid+'">'+I.wa+'Enviar no WhatsApp</button>'
+     :'<a class="btn wa block" id="s-send" href="'+sitHref(cid,txt)+'" target="_blank" rel="noopener">'+I.wa+'Enviar no WhatsApp</a>')+
+   '<div class="acts" style="margin-top:8px"><button class="btn ghost" data-close-btn>Cancelar</button></div>');
+}
+async function sitApi(b){
+  const c=client(b.dataset.c),txt=$("#s-txt").value.trim();if(!c||b.disabled)return;if(!txt){toast("Escreva a mensagem");return}
+  const old=b.innerHTML;b.disabled=true;b.textContent="Enviando...";
+  try{await cloudFetch("/api/whats/enviar",{method:"POST",body:{nome:c.name,phone:c.phone,text:txt}});closeSheet();toast("Situação enviada para "+c.name.split(" ")[0])}
+  catch(e){b.disabled=false;b.innerHTML=old;toast("Não enviou: "+(e.message||e))}
+}
+
 /* ---------- clientes ---------- */
 function vClientes(){
   const q=(view.q||"").toLowerCase();
@@ -744,7 +782,8 @@ function vCliente(id){
    (c.birth?'<span>Nascimento</span><b>'+esc(fmtD(c.birth))+' ('+idade(c.birth)+' anos)</b>':'')+
    '<span>Endereço</span><b style="overflow-wrap:anywhere">'+esc(c.address||"Não informado")+'</b></div>'+(c.viaLink?'<div class="hint" style="font-size:13px;color:var(--muted)">O próprio cliente fez este cadastro pelo link.</div>':'')+(c.notes?'<div class="note">'+esc(c.notes)+'</div>':'')+
    '<div class="flabel">Fotos e documentos</div>'+filesStrip("client",id,c.files)+
-   '<div class="acts"><button class="btn pri" data-act="newLoan" data-c="'+id+'">'+I.plus.replace('stroke-width="2.6"','stroke-width="2.6" width="18" height="18"')+'Emprestar</button><button class="btn ghost" data-act="editClient" data-c="'+id+'">Editar</button></div></div>'+
+   '<div class="acts"><button class="btn pri" data-act="newLoan" data-c="'+id+'">'+I.plus.replace('stroke-width="2.6"','stroke-width="2.6" width="18" height="18"')+'Emprestar</button><button class="btn ghost" data-act="editClient" data-c="'+id+'">Editar</button></div>'+
+   '<button class="btn wa block" data-act="situacao" data-c="'+id+'">'+I.wa+'Enviar situação</button></div>'+
    sec("Empréstimos",ls.length?String(ls.length):"")+
    (ls.length?'<div class="list">'+ls.map(loanCard).join("")+'</div>':'<div class="empty">Nenhum empréstimo ainda.</div>')+
    sec("Histórico de pagamentos",ps.length?"Total pago "+brl(paidTot):"")+
@@ -1124,6 +1163,8 @@ document.addEventListener("click",e=>{
     cloudFetch("/api/arquivos/"+fid,{method:"DELETE"}).catch(()=>{});toast("Arquivo apagado")})}
   else if(a==="roboRefresh"){syncRobot(true)}
   else if(a==="inviteLink")inviteLink();
+  else if(a==="situacao")situacaoForm(b.dataset.c);
+  else if(a==="sitApi")sitApi(b);
   else if(a==="copyInvite"){const l=b.dataset.l;(navigator.clipboard?navigator.clipboard.writeText(l):Promise.reject()).then(()=>toast("Link copiado"),()=>toast("Segure o link acima para copiar"))}
   else if(a==="reload")location.reload();
   else if(a==="admList"){loadUsers().then(admList)}
@@ -1166,6 +1207,7 @@ document.addEventListener("click",e=>{
 });
 document.addEventListener("input",e=>{
   const id=e.target.id;
+  if(id==="s-txt"){const s=$("#s-send");if(s&&s.tagName==="A")s.href=sitHref(e.target.dataset.c,e.target.value);return}
   if(id==="m-txt"){const l=S.loans.find(x=>x.id===e.target.dataset.l),s=$("#m-send");if(l&&s&&s.tagName==="A")s.href=waHref(l,e.target.value);return}
   if(id==="lq"){$("#llist").innerHTML=pickList(e.target.value);return}
   if(id==="q"){view.q=e.target.value;const q=view.q.toLowerCase();
