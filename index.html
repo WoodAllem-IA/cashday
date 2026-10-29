@@ -719,10 +719,10 @@ async function apiSend(b){
 
 /* ---------- situação atual do cliente (resumo para mandar no WhatsApp) ---------- */
 function situacaoText(cid){
-  const c=client(cid)||{name:""},t=today(),nome=c.name.replace(/\s*\(exemplo\)/,"").split(" ")[0];
+  const t=today();
   const ls=S.loans.filter(l=>l.clientId===cid&&l.status==="aberto").sort((a,b)=>a.nextDue.localeCompare(b.nextDue));
-  let txt=saudacao()+", "+nome+"!\n\nSua situação hoje ("+fmtD(t)+"):";
-  if(!ls.length)return txt+"\n\nVocê não tem nenhuma dívida em aberto. Obrigado!";
+  let txt="Situação em "+fmtD(t)+":";
+  if(!ls.length)return txt+"\n\nNenhuma dívida em aberto.";
   let tot=0;
   ls.forEach((l,i)=>{
     const dl=daysLate(l),lf=lateFee(l),pago=S.payments.filter(p=>p.loanId===l.id).reduce((s,p)=>s+p.amount,0),falta=l.n-l.paid;
