@@ -60,6 +60,22 @@ input.bad{border-color:var(--late)}
 .done{text-align:center;padding:32px 16px}
 .done .big{width:72px;height:72px;border-radius:50%;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;margin:0 auto 14px}
 [hidden]{display:none!important}
+/* etapas: uma pergunta por tela */
+.prog{display:flex;align-items:center;gap:10px;margin:0 0 14px}
+.bar{flex:1;height:8px;border-radius:99px;background:var(--line);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent);border-radius:99px;transition:width .3s ease}
+.prog span{font-size:13px;font-weight:600;color:var(--muted);white-space:nowrap}
+.step h1{font-size:26px;font-weight:800;margin-bottom:4px}
+.step .sub{color:var(--muted);margin:0 0 4px}
+.step input.big{font-size:20px;min-height:58px;font-weight:600}
+.nav{display:flex;gap:10px}
+.nav .back{flex:0 0 auto;width:auto;padding-inline:20px;background:transparent;color:var(--muted);border:1.5px solid var(--line)}
+.nav .pri{flex:1}
+.review{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:15px}
+.review span{color:var(--muted)}
+.review b{font-weight:600;overflow-wrap:anywhere}
+.rv-ph{width:72px;height:72px;border-radius:50%;object-fit:cover;border:3px solid var(--accent)}
+@media (prefers-reduced-motion:no-preference){.step{animation:in .25s ease}@keyframes in{from{opacity:0;transform:translateX(12px)}to{opacity:1;transform:none}}}
 </style>
 </head>
 <body>
@@ -72,37 +88,74 @@ const $=s=>document.querySelector(s);
 const token=location.pathname.split("/").pop();
 const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const cam='<svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.5"/></svg>';
-let foto="";
-
 function cpfOk(c){c=c.replace(/\D/g,"");if(c.length!==11||/^(\d)\1+$/.test(c))return false;
   const dv=n=>{let s=0;for(let i=0;i<n;i++)s+=Number(c[i])*(n+1-i);const r=(s*10)%11;return r===10?0:r};return dv(9)===Number(c[9])&&dv(10)===Number(c[10])}
 const mask=(v,p)=>{v=v.replace(/\D/g,"");let o="",i=0;for(const ch of p){if(i>=v.length)break;if(ch==="9")o+=v[i++];else o+=ch}return o};
+const fmtNasc=s=>s?s.split("-").reverse().join("/"):"";
 
-function form(de){
-  $("#box").innerHTML='<div class="intro"><h1>Seu cadastro</h1><p>'+(de&&de!=="Administrador"?esc(de)+' pediu para você preencher seus dados.':'Preencha seus dados para o cadastro.')+' Leva 2 minutos. Todos os campos são obrigatórios.</p></div>'+
-  '<form id="f" novalidate>'+
-  '<div class="card photo"><h2>Sua foto <span class="req">*</span></h2><div class="ph" id="ph">'+cam+'</div>'+
-   '<span class="hint">Tire uma foto do seu rosto, de frente e com boa luz.</span>'+
-   '<label class="btn sec" style="width:auto;padding-inline:24px"><input type="file" id="cam" accept="image/*" capture="user" hidden><span id="camt">Tirar foto</span></label></div>'+
-  '<div class="card"><h2>Seus dados</h2>'+
-   '<div class="f"><label for="nome">Nome completo <span class="req">*</span></label><input id="nome" autocomplete="name" autocapitalize="words"></div>'+
-   '<div class="two"><div class="f"><label for="cpf">CPF <span class="req">*</span></label><input id="cpf" inputmode="numeric" placeholder="000.000.000-00" maxlength="14"></div>'+
-   '<div class="f"><label for="nasc">Nascimento <span class="req">*</span></label><input id="nasc" type="date" max="'+new Date().toISOString().slice(0,10)+'"></div></div>'+
-   '<div class="f"><label for="whats">WhatsApp com DDD <span class="req">*</span></label><input id="whats" type="tel" inputmode="tel" autocomplete="tel" placeholder="(11) 98765-4321" maxlength="15"></div></div>'+
-  '<div class="card"><h2>Endereço</h2>'+
-   '<div class="f"><label for="cep">CEP <span class="req">*</span></label><input id="cep" inputmode="numeric" autocomplete="postal-code" placeholder="00000-000" maxlength="9"><span class="hint" id="cepmsg">Digite o CEP que o endereço aparece sozinho.</span></div>'+
-   '<div class="f"><label for="end">Rua <span class="req">*</span></label><input id="end" autocomplete="address-line1"></div>'+
-   '<div class="three"><div class="f"><label for="comp">Complemento</label><input id="comp" placeholder="Apto, bloco"></div><div class="f"><label for="num">Número <span class="req">*</span></label><input id="num" inputmode="numeric"></div></div>'+
-   '<div class="f"><label for="bairro">Bairro <span class="req">*</span></label><input id="bairro"></div>'+
-   '<div class="three"><div class="f"><label for="cidade">Cidade <span class="req">*</span></label><input id="cidade" autocomplete="address-level2"></div><div class="f"><label for="uf">UF <span class="req">*</span></label><input id="uf" maxlength="2" autocapitalize="characters" autocomplete="address-level1"></div></div></div>'+
-  '<div class="card"><label class="check"><input type="checkbox" id="aceite"><span>Autorizo o uso dos meus dados e da minha foto para este cadastro e para contato sobre pagamentos.</span></label>'+
-   '<div class="err" id="err" hidden></div><button class="btn pri" id="go" type="submit">Enviar cadastro</button></div></form>';
+let de="",at=0,fotoUrl="";
+const D={foto:"",nome:"",cpf:"",nascimento:"",whatsapp:"",cep:"",endereco:"",numero:"",complemento:"",bairro:"",cidade:"",uf:""};
 
-  $("#cpf").addEventListener("input",e=>e.target.value=mask(e.target.value,"999.999.999-99"));
-  $("#whats").addEventListener("input",e=>{const d=e.target.value.replace(/\D/g,"");e.target.value=mask(d,d.length>10?"(99) 99999-9999":"(99) 9999-9999")});
-  $("#cep").addEventListener("input",e=>{e.target.value=mask(e.target.value,"99999-999");if(e.target.value.length===9)buscaCep(e.target.value)});
-  $("#cam").addEventListener("change",e=>{const f=e.target.files[0];if(f)tirarFoto(f)});
-  $("#f").addEventListener("submit",enviar);
+/* cada etapa: título, o que mostra e como confere antes de seguir */
+const STEPS=[
+  {t:"Sua foto",sub:"Tire uma foto do seu rosto, de frente e com boa luz.",
+   html:()=>'<div class="photo"><div class="ph'+(fotoUrl?' ok':'')+'" id="ph">'+(fotoUrl?'<img alt="Sua foto" src="'+fotoUrl+'">':cam)+'</div>'+
+     '<label class="btn sec" style="width:auto;padding-inline:24px"><input type="file" id="cam" accept="image/*" capture="user" hidden><span>'+(fotoUrl?'Tirar outra foto':'Tirar foto')+'</span></label></div>',
+   ok:()=>D.foto?null:"Tire a sua foto para continuar."},
+  {t:"Qual é o seu nome completo?",sub:"Como está no seu documento.",
+   html:()=>'<input class="big" id="nome" autocomplete="name" autocapitalize="words" value="'+esc(D.nome)+'">',
+   read:()=>{D.nome=$("#nome").value.trim().replace(/\s+/g," ")},ok:()=>D.nome.split(" ").length>=2?null:"Coloque o nome completo, com sobrenome."},
+  {t:"Qual é o seu CPF?",sub:"Só os números.",
+   html:()=>'<input class="big" id="cpf" inputmode="numeric" placeholder="000.000.000-00" maxlength="14" value="'+esc(D.cpf)+'">',
+   read:()=>{D.cpf=$("#cpf").value},ok:()=>cpfOk(D.cpf)?null:"CPF inválido. Confira os números."},
+  {t:"Qual é a sua data de nascimento?",sub:"",
+   html:()=>'<input class="big" id="nasc" type="date" max="'+new Date().toISOString().slice(0,10)+'" value="'+esc(D.nascimento)+'">',
+   read:()=>{D.nascimento=$("#nasc").value},ok:()=>/^\d{4}-\d{2}-\d{2}$/.test(D.nascimento)&&D.nascimento>"1900"?null:"Coloque a data de nascimento."},
+  {t:"Qual é o seu WhatsApp?",sub:"Com DDD.",
+   html:()=>'<input class="big" id="whats" type="tel" inputmode="tel" autocomplete="tel" placeholder="(11) 98765-4321" maxlength="15" value="'+esc(D.whatsapp)+'">',
+   read:()=>{D.whatsapp=$("#whats").value},ok:()=>D.whatsapp.replace(/\D/g,"").length>=10?null:"Coloque o WhatsApp com DDD."},
+  {t:"Qual é o seu endereço?",sub:"Digite o CEP que a rua aparece sozinha.",
+   html:()=>'<div class="f"><label for="cep">CEP</label><input class="big" id="cep" inputmode="numeric" autocomplete="postal-code" placeholder="00000-000" maxlength="9" value="'+esc(D.cep)+'"><span class="hint" id="cepmsg"></span></div>'+
+     '<div class="f"><label for="end">Rua</label><input id="end" autocomplete="address-line1" value="'+esc(D.endereco)+'"></div>'+
+     '<div class="three" style="grid-template-columns:1fr 2fr"><div class="f"><label for="num">Número</label><input id="num" inputmode="numeric" value="'+esc(D.numero)+'"></div><div class="f"><label for="comp">Complemento</label><input id="comp" placeholder="Apto, bloco" value="'+esc(D.complemento)+'"></div></div>'+
+     '<div class="f"><label for="bairro">Bairro</label><input id="bairro" value="'+esc(D.bairro)+'"></div>'+
+     '<div class="three"><div class="f"><label for="cidade">Cidade</label><input id="cidade" autocomplete="address-level2" value="'+esc(D.cidade)+'"></div><div class="f"><label for="uf">UF</label><input id="uf" maxlength="2" autocapitalize="characters" value="'+esc(D.uf)+'"></div></div>',
+   read:()=>{for(const [k,id] of [["cep","cep"],["endereco","end"],["numero","num"],["complemento","comp"],["bairro","bairro"],["cidade","cidade"],["uf","uf"]])D[k]=$("#"+id).value.trim();D.uf=D.uf.toUpperCase()},
+   ok:()=>{if(D.cep.replace(/\D/g,"").length!==8)return ["Coloque o CEP.","cep"];
+     for(const [k,id,n] of [["endereco","end","a rua"],["numero","num","o número"],["bairro","bairro","o bairro"],["cidade","cidade","a cidade"]])if(!D[k])return ["Coloque "+n+".",id];
+     return D.uf.length===2?null:["Coloque a UF (ex.: SP).","uf"]}},
+  {t:"Confira e envie",sub:"Se algo estiver errado, toque em Voltar.",
+   html:()=>'<div style="display:flex;gap:14px;align-items:center"><img class="rv-ph" alt="Sua foto" src="'+fotoUrl+'"><b style="font-size:18px">'+esc(D.nome)+'</b></div>'+
+     '<div class="review"><span>CPF</span><b>'+esc(D.cpf)+'</b><span>Nascimento</span><b>'+esc(fmtNasc(D.nascimento))+'</b><span>WhatsApp</span><b>'+esc(D.whatsapp)+'</b>'+
+     '<span>Endereço</span><b>'+esc(D.endereco+", "+D.numero+(D.complemento?" - "+D.complemento:"")+", "+D.bairro+", "+D.cidade+"/"+D.uf+", CEP "+D.cep)+'</b></div>'+
+     '<label class="check"><input type="checkbox" id="aceite"><span>Autorizo o uso dos meus dados e da minha foto para este cadastro e para contato sobre pagamentos.</span></label>',
+   ok:()=>$("#aceite").checked?null:["Marque a autorização para enviar.","aceite"]}
+];
+
+function show(){
+  const s=STEPS[at],last=at===STEPS.length-1;
+  $("#box").innerHTML=(at===0?'<p class="hint" style="font-size:15px;margin:0 0 12px">'+(de&&de!=="Administrador"?esc(de)+' pediu o seu cadastro. ':'')+'São só '+STEPS.length+' passos rápidos.</p>':'')+
+   '<div class="prog"><div class="bar"><i style="width:'+Math.round((at+1)/STEPS.length*100)+'%"></i></div><span>Passo '+(at+1)+' de '+STEPS.length+'</span></div>'+
+   '<form class="card step" id="f" novalidate><div><h1>'+s.t+'</h1>'+(s.sub?'<p class="sub">'+s.sub+'</p>':'')+'</div>'+s.html()+
+   '<div class="err" id="err" hidden></div><div class="nav">'+(at?'<button type="button" class="btn back" id="back">Voltar</button>':'')+
+   '<button class="btn pri" id="go" type="submit">'+(last?'Enviar cadastro':'Continuar')+'</button></div></form>';
+  wire();
+  const first=$("#f input:not([type=file]):not([type=checkbox])");if(first&&!("ontouchstart" in window&&at===3))first.focus();
+}
+function wire(){
+  $("#f").addEventListener("submit",next);
+  if($("#back"))$("#back").addEventListener("click",()=>{const s=STEPS[at];if(s.read)s.read();at--;show()});
+  if($("#cam"))$("#cam").addEventListener("change",e=>{const f=e.target.files[0];if(f)tirarFoto(f)});
+  if($("#cpf"))$("#cpf").addEventListener("input",e=>e.target.value=mask(e.target.value,"999.999.999-99"));
+  if($("#whats"))$("#whats").addEventListener("input",e=>{const d=e.target.value.replace(/\D/g,"");e.target.value=mask(d,d.length>10?"(99) 99999-9999":"(99) 9999-9999")});
+  if($("#cep"))$("#cep").addEventListener("input",e=>{e.target.value=mask(e.target.value,"99999-999");if(e.target.value.length===9)buscaCep(e.target.value)});
+}
+function erro(m,id){const e=$("#err");e.textContent=m;e.hidden=false;document.querySelectorAll(".bad").forEach(x=>x.classList.remove("bad"));
+  const el=id&&$("#"+id);if(el){el.classList.add("bad");el.focus()}}
+function next(ev){
+  ev.preventDefault();const s=STEPS[at];if(s.read)s.read();
+  let r=s.ok();if(r){if(typeof r==="string")r=[r,($("#f input.big")||{}).id];return erro(r[0],r[1])}
+  if(at<STEPS.length-1){at++;show();scrollTo(0,0)}else enviar();
 }
 
 async function buscaCep(c){
@@ -110,39 +163,20 @@ async function buscaCep(c){
   try{const r=await fetch("https://viacep.com.br/ws/"+c.replace(/\D/g,"")+"/json/");const j=await r.json();
     if(j.erro)throw 0;
     if(j.logradouro)$("#end").value=j.logradouro;if(j.bairro)$("#bairro").value=j.bairro;$("#cidade").value=j.localidade||"";$("#uf").value=j.uf||"";
-    m.textContent="Endereço encontrado. Confira e coloque o número.";$("#num").focus();
+    m.textContent="Endereço encontrado. Coloque o número.";$("#num").focus();
   }catch(e){m.textContent="Não achei esse CEP. Preencha o endereço abaixo."}
 }
-
 function tirarFoto(file){
   const img=new Image(),u=URL.createObjectURL(file);
   img.onload=()=>{const m=1600,k=Math.min(1,m/Math.max(img.width,img.height)),c=document.createElement("canvas");
     c.width=Math.round(img.width*k);c.height=Math.round(img.height*k);c.getContext("2d").drawImage(img,0,0,c.width,c.height);URL.revokeObjectURL(u);
-    const url=c.toDataURL("image/jpeg",0.82);foto=url.split(",")[1];
-    $("#ph").innerHTML='<img alt="Sua foto" src="'+url+'">';$("#ph").classList.add("ok");$("#camt").textContent="Tirar outra foto"};
+    fotoUrl=c.toDataURL("image/jpeg",0.82);D.foto=fotoUrl.split(",")[1];show()};
   img.onerror=()=>{URL.revokeObjectURL(u);erro("Não consegui ler a foto. Tente de novo.")};img.src=u;
 }
-
-function erro(m,el){const e=$("#err");e.textContent=m;e.hidden=false;document.querySelectorAll(".bad").forEach(x=>x.classList.remove("bad"));
-  if(el){el.classList.add("bad");el.focus();el.scrollIntoView({block:"center",behavior:"smooth"})}}
-
-async function enviar(ev){
-  ev.preventDefault();
-  const v=id=>$("#"+id).value.trim();
-  if(!foto)return erro("Tire a sua foto para continuar.",null),$("#ph").scrollIntoView({block:"center",behavior:"smooth"});
-  if(v("nome").split(/\s+/).length<2)return erro("Coloque o nome completo.",$("#nome"));
-  if(!cpfOk(v("cpf")))return erro("CPF inválido. Confira os números.",$("#cpf"));
-  if(!v("nasc"))return erro("Coloque a data de nascimento.",$("#nasc"));
-  if(v("whats").replace(/\D/g,"").length<10)return erro("Coloque o WhatsApp com DDD.",$("#whats"));
-  if(v("cep").replace(/\D/g,"").length!==8)return erro("Coloque o CEP.",$("#cep"));
-  for(const [id,n] of [["end","a rua"],["num","o número"],["bairro","o bairro"],["cidade","a cidade"]])if(!v(id))return erro("Coloque "+n+".",$("#"+id));
-  if(v("uf").length!==2)return erro("Coloque a UF (ex.: SP).",$("#uf"));
-  if(!$("#aceite").checked)return erro("Marque a autorização para enviar.",$("#aceite"));
+async function enviar(){
   const go=$("#go");go.disabled=true;go.textContent="Enviando...";$("#err").hidden=true;
   try{
-    const r=await fetch("/api/convite/"+encodeURIComponent(token),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
-      nome:v("nome"),cpf:v("cpf"),nascimento:v("nasc"),whatsapp:v("whats"),cep:v("cep"),endereco:v("end"),numero:v("num"),complemento:v("comp"),
-      bairro:v("bairro"),cidade:v("cidade"),uf:v("uf"),aceite:true,foto})});
+    const r=await fetch("/api/convite/"+encodeURIComponent(token),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(Object.assign({},D,{aceite:true}))});
     const j=await r.json().catch(()=>({}));
     if(!j.ok)throw new Error(j.erro||"Não consegui enviar. Tente de novo.");
     $("#box").innerHTML='<div class="card done"><div class="big"><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div><h1 style="font-size:24px">Cadastro enviado!</h1><p class="hint" style="font-size:15px">Obrigado. Seus dados chegaram certinho. Pode fechar esta página.</p></div>';
@@ -151,7 +185,7 @@ async function enviar(ev){
 }
 
 fetch("/api/convite/"+encodeURIComponent(token)).then(r=>r.json()).then(j=>{
-  if(j.valido)form(j.de);
+  if(j.valido){de=j.de||"";show()}
   else $("#box").innerHTML='<div class="card done"><h1 style="font-size:22px">Link inválido</h1><p class="hint" style="font-size:15px">Este link já foi usado ou passou do prazo de 7 dias. Peça um novo link para quem te enviou.</p></div>';
 }).catch(()=>{$("#box").innerHTML='<div class="card"><div class="err">Sem conexão. Verifique a internet e abra o link de novo.</div></div>'});
 </script>
