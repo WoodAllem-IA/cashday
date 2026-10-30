@@ -572,6 +572,47 @@ function seed(){
   return d;
 }
 
+/* Clientes fictícios para mostrar o app e tirar prints. Ficam marcados com sample
+   (o robô nunca cobra) e somem todos juntos no "Apagar exemplos".
+   Cada linha: nome, WhatsApp, endereço, nascimento, valor, %, parcelas, frequência,
+   próximo vencimento (dias a partir de hoje), pagamentos já feitos ("p"=parcela,
+   "j"=só porcentagem, número=dias de atraso), garantia e multa. */
+function exemplos(){
+  const d={clients:[],loans:[],payments:[]},t=today();
+  const cpf=()=>{const n=Array.from({length:9},()=>Math.floor(Math.random()*10));
+    const dv=k=>{const s=n.slice(0,k).reduce((a,x,i)=>a+x*(k+1-i),0)%11;return s<2?0:11-s};n.push(dv(9));n.push(dv(10));return n.join("")};
+  [["Marcos Vinícius Andrade","11987321456","Rua Augusta, 1520, apto 84, Consolação, São Paulo - SP","1985-03-12",3000,40,6,"mensal",12,"p0 p0 p0 p0","Carro Fiat Uno 2015, documento comigo"],
+   ["Fernanda Alves Costa","11976543218","Rua Tuiuti, 340, Tatuapé, São Paulo - SP","1992-07-25",1500,40,1,"mensal",5,"j0 j0 j1"],
+   ["José Carlos Pereira","11965438721","Av. Sapopemba, 8800, São Mateus, São Paulo - SP","1968-11-03",800,30,10,"semanal",3,"p0 p0 p0 p0 p0 p0"],
+   ["Ana Paula Ribeiro","11954327890","Rua Voluntários da Pátria, 2100, Santana, São Paulo - SP","1990-01-18",500,20,20,"diario",1,"p0 p0 p0 p0 p0 p0 p0 p0 p0 p0 p0 p0"],
+   ["Ricardo Santos Oliveira","11943218765","Rua Oscar Freire, 900, Jardins, São Paulo - SP","1979-09-30",5000,40,5,"mensal",20,"p0 p2 p0","Moto Honda CG 160 2021, placa FJK2B34"],
+   ["Patrícia Gomes Lima","11932109876","Rua Cerro Corá, 450, Vila Romana, São Paulo - SP","1988-05-07",1200,40,4,"quinzenal",7,"p0 p0"],
+   ["Lucas Henrique Martins","11921098765","Av. Celso Garcia, 3300, Belém, São Paulo - SP","1996-12-22",1000,40,1,"mensal",0,"j0 j0"],
+   ["Camila Rodrigues Souza","11910987654","Rua Itapura, 1200, Tatuapé, São Paulo - SP","1994-04-14",600,40,6,"semanal",0,"p0 p1 p0"],
+   ["Thiago Ferreira Dias","11998761234","Rua Domingos de Morais, 2500, Vila Mariana, São Paulo - SP","1987-08-09",2000,40,4,"mensal",-2,"p0 p0"],
+   ["Juliana Barbosa Nunes","11987650123","Rua Teodoro Sampaio, 1800, Pinheiros, São Paulo - SP","1991-02-27",700,40,1,"mensal",-5,"j3"],
+   ["Rafael Moreira Cardoso","11976549012","Av. Guilherme Cotching, 700, Vila Maria, São Paulo - SP","1983-06-16",1500,40,6,"quinzenal",-12,"p0 p4 p6","Celular iPhone 12, nota fiscal comigo"],
+   ["Sandra Lopes Teixeira","11965437890","Rua Clélia, 1100, Lapa, São Paulo - SP","1975-10-05",2500,40,5,"mensal",-30,"p5 p15 p10","",["pct",2]],
+   ["Bruno Almeida Rocha","11954326789","Rua Vergueiro, 4000, Ipiranga, São Paulo - SP","1989-03-21",1000,40,3,"mensal",-10,"p0 p0 p0"],
+   ["Vanessa Cristina Melo","11943215678","Rua Coronel Rodovalho, 300, Penha, São Paulo - SP","1997-11-11",400,40,4,"semanal",-3,"p0 p1 p0 p0"],
+   ["Eduardo Silva Batista","11932104567","Av. Interlagos, 5000, Interlagos, São Paulo - SP","1972-07-01",3500,30,6,"mensal",-15,"p0 p0 p3 p0 p0 p0"]
+  ].forEach(([name,phone,address,birth,principal,pct,n,freq,next,evs,gar,mul])=>{
+    const ev=evs.split(" "),nextDue=addDays(t,next),firstDue=addPeriod(nextDue,freq,-ev.length),created=addPeriod(firstDue,freq,-1);
+    const c={id:uid(),name,phone,cpf:cpf(),address,birth,notes:"",sample:true,createdAt:created};
+    const [lateType,lateValue]=mul||["fixo",50];
+    const l={id:uid(),clientId:c.id,principal,pct,n,freq,guarantee:gar||"",firstDue,nextDue:firstDue,paid:0,lateType,lateValue,status:"aberto",sample:true,createdAt:created};
+    ev.forEach(e=>{
+      const kind=e[0]==="j"?"juros":"parcela",late=Number(e.slice(1)),due=l.nextDue,date=addDays(due,late);
+      const fee=lateFee(l,date),prev={paid:l.paid,nextDue:l.nextDue,status:l.status};
+      d.payments.push({id:uid(),loanId:l.id,clientId:c.id,date,kind,amount:r2((kind==="juros"?jurosParc(l):parcel(l))+fee),lateDays:late,lateFee:fee,inst:l.paid+1,n,due,prev,sample:true});
+      if(kind==="parcela")l.paid++;l.nextDue=addPeriod(l.nextDue,freq);
+    });
+    if(l.paid>=n)l.status="quitado";
+    d.clients.push(c);d.loans.push(l);
+  });
+  return d;
+}
+
 /* ---------- regras de cálculo ---------- */
 const client=id=>S.clients.find(c=>c.id===id);
 const total=l=>r2(l.principal*(1+l.pct/100));
@@ -1029,6 +1070,8 @@ function vAjustes(){
    '<span class="hint" style="font-size:12px;color:var(--muted)">O robô manda uma mensagem a cada 2 minutos, entre o horário escolhido e as 21h, e nunca cobra a mesma pessoa duas vezes no dia. Clientes de exemplo nunca recebem.</span></div>'))+
   (SERVER?'':'<div class="card"><h3>Cópia de segurança</h3><div class="note" style="background:transparent;padding:0">Os dados ficam guardados neste celular'+(cloudOn()?' e na nuvem, com backup automático':'')+'. Copie o backup de vez em quando e mande para você mesmo no WhatsApp ou cole numa nota.</div>'+
    '<div class="acts"><button class="btn sec2" data-act="copyBackup">Copiar backup</button><button class="btn ghost" data-act="restore">Restaurar</button></div></div>')+
+  (S.clients.some(c=>c.sample)?'':'<div class="card"><h3>Clientes de exemplo</h3><span class="hint" style="font-size:13px;color:var(--muted)">Coloca 15 clientes inventados, com empréstimos em dia, vencendo hoje, atrasados e quitados, para mostrar o app e tirar prints. O robô nunca cobra clientes de exemplo, e o aviso "Apagar exemplos" no topo tira todos de uma vez.</span>'+
+   '<button class="btn sec2" data-act="addSamples">Colocar clientes de exemplo</button></div>')+
   '<div class="card"><h3>Apagar tudo</h3><button class="btn danger" data-act="wipe">Apagar todos os dados</button></div>';
 }
 
@@ -1219,6 +1262,7 @@ document.addEventListener("click",e=>{
     S.loans=S.loans.filter(l=>l.clientId!==c.id);S.payments=S.payments.filter(p=>p.clientId!==c.id);S.clients=S.clients.filter(x=>x.id!==c.id);save();view={tab:"clientes"};toast("Cliente excluído")})}
   else if(a==="delLoan"){const id=b.dataset.l;confirmSheet("Excluir este empréstimo?","Os pagamentos dele também saem do histórico.","Excluir",()=>{
     S.loans=S.loans.filter(l=>l.id!==id);S.payments=S.payments.filter(p=>p.loanId!==id);save();toast("Empréstimo excluído")})}
+  else if(a==="addSamples"){const x=exemplos();S.clients.push(...x.clients);S.loans.push(...x.loans);S.payments.push(...x.payments);S.sample=true;save();view={tab:"clientes"};render();toast(x.clients.length+" clientes de exemplo colocados")}
   else if(a==="clearSample"){confirmSheet("Apagar os exemplos?","Os clientes de exemplo somem e o app fica pronto para os seus clientes de verdade.","Apagar exemplos",()=>{
     S.clients=S.clients.filter(x=>!x.sample);S.loans=S.loans.filter(x=>!x.sample);S.payments=S.payments.filter(x=>!x.sample);S.sample=false;save();view={tab:view.tab};toast("Exemplos apagados")})}
   else if(a==="saveRobo"){S.robot=cloudOn()?Object.assign({},S.robot,{phone:$("#s-rph").value.replace(/\D/g,"")}):{url:$("#s-rurl").value.trim(),pw:$("#s-rpw").value,phone:$("#s-rph").value.replace(/\D/g,"")};S.settings.autoSend=$("#s-auto").checked;
