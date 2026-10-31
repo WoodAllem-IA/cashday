@@ -266,6 +266,14 @@ body.priv .pv{display:inline-block}
 }
 @media (min-width:960px) and (max-width:1279px){.dash .chart,.dash .pn.side{grid-column:1/-1}}
 @media (min-width:1360px){.kpis{grid-template-columns:repeat(6,minmax(0,1fr))}.kpi b,.kpi.hero b{font-size:24px}}
+/* retiradas somadas no mesmo empréstimo */
+.ret{background:var(--bg);border-radius:12px;font-size:14px}
+.ret summary{cursor:pointer;padding:10px 12px;font-weight:700;color:var(--accent);list-style:none;display:flex;justify-content:space-between;align-items:center}
+.ret summary::-webkit-details-marker{display:none}
+.ret summary::after{content:"▾";font-size:12px}
+.ret[open] summary::after{content:"▴"}
+.ret .rr{display:flex;justify-content:space-between;padding:8px 12px;border-top:1px solid var(--line)}
+.ret .rr span{color:var(--muted)}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(76px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:12px;font-weight:600;font-size:14px;z-index:40;max-width:calc(100% - 32px)}
 </style>
 
@@ -890,7 +898,7 @@ function vCliente(id){
    '<div class="flabel">Fotos e documentos</div>'+filesStrip("client",id,c.files)+
    '<div class="acts"><button class="btn pri" data-act="newLoan" data-c="'+id+'">'+I.plus.replace('stroke-width="2.6"','stroke-width="2.6" width="18" height="18"')+'Emprestar</button><button class="btn ghost" data-act="editClient" data-c="'+id+'">Editar</button></div>'+
    '<button class="btn wa block" data-act="situacao" data-c="'+id+'">'+I.wa+'Enviar situação</button></div>'+
-   sec("Empréstimos",ls.length?String(ls.length):"")+
+   sec("Empréstimos",ls.length?String(ls.length):"")+juntarAviso(id)+
    (ls.length?'<div class="list">'+ls.map(loanCard).join("")+'</div>':'<div class="empty">Nenhum empréstimo ainda.</div>')+
    sec("Histórico de pagamentos",ps.length?"Total pago "+brl(paidTot):"")+
    (ps.length?(lateCount?'<div class="note" style="margin-bottom:8px">Pagou com atraso '+lateCount+(lateCount>1?" vezes":" vez")+' de '+ps.length+'.</div>':'')+
@@ -905,9 +913,37 @@ function fmtCPF(v){const d=String(v||"").replace(/\D/g,"");return d.length===11?
 function cpfOk(v){const d=String(v).replace(/\D/g,"");if(d.length!==11||/^(\d)\1+$/.test(d))return false;
   for(let k=9;k<11;k++){let s=0;for(let i=0;i<k;i++)s+=Number(d[i])*(k+1-i);if(((s*10)%11)%10!==Number(d[k]))return false}return true}
 function fmtPhone(p){const d=String(p||"").replace(/\D/g,"");if(d.length===11)return"("+d.slice(0,2)+") "+d.slice(2,7)+"-"+d.slice(7);if(d.length===10)return"("+d.slice(0,2)+") "+d.slice(2,6)+"-"+d.slice(6);return p||"Sem telefone"}
+/* Empréstimos do mesmo dia: quando o cliente pega mais dinheiro no mesmo dia e ainda
+   não pagou nada, o valor soma no mesmo empréstimo e cada retirada fica guardada em l.retiradas. */
+const semPagamento=l=>!S.payments.some(p=>p.loanId===l.id);
+const loanDoDia=cid=>S.loans.filter(l=>l.clientId===cid&&l.status==="aberto"&&l.createdAt===today()&&semPagamento(l)).pop();
+const retiradas=l=>l.retiradas&&l.retiradas.length?l.retiradas:[{valor:l.principal,em:l.em||null}];
+const hora=iso=>iso?new Date(iso).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}):"--:--";
+const condTxt=l=>String(l.pct).replace(".",",")+"% · "+l.n+(l.n>1?" parcelas":" parcela")+" · vence "+fmtD(l.nextDue);
+function retList(l){
+  const r=retiradas(l);if(r.length<2)return "";
+  return '<details class="ret"><summary>'+r.length+' retiradas em '+fmtD(l.createdAt)+'</summary>'+
+    r.map((x,i)=>'<div class="rr num"><span>'+(i+1)+'ª · '+hora(x.em)+'</span><b>'+brl(x.valor)+'</b></div>').join("")+'</details>';
+}
+function juntarDia(cid,dia){
+  const ls=S.loans.filter(l=>l.clientId===cid&&l.status==="aberto"&&l.createdAt===dia&&semPagamento(l));if(ls.length<2)return;
+  const base=ls[0],r=[];
+  ls.forEach(l=>r.push(...retiradas(l)));
+  r.sort((a,b)=>String(a.em||"").localeCompare(String(b.em||"")));
+  base.retiradas=r;base.principal=r2(r.reduce((s,x)=>s+x.valor,0));
+  const gs=[...new Set(ls.map(l=>l.guarantee).filter(Boolean))];base.guarantee=gs.join("; ");
+  base.files=ls.flatMap(l=>l.files||[]);if(!base.files.length)delete base.files;
+  const out=new Set(ls.slice(1).map(l=>l.id));S.loans=S.loans.filter(l=>!out.has(l.id));
+  save();render();toast("Juntei "+ls.length+" empréstimos: "+brl(base.principal));
+}
+function juntarAviso(cid){
+  const g={};S.loans.forEach(l=>{if(l.clientId===cid&&l.status==="aberto"&&semPagamento(l))(g[l.createdAt]=g[l.createdAt]||[]).push(l)});
+  return Object.keys(g).filter(d=>g[d].length>1).map(d=>'<div class="cta"><div><b>'+g[d].length+' empréstimos em '+fmtD(d)+'</b><span>Nenhum foi pago ainda. Dá para juntar num só, com a porcentagem, as parcelas e o vencimento do primeiro ('+esc(condTxt(g[d][0]))+'), e as retiradas ficam listadas.</span></div>'+
+    '<button class="btn pri" data-act="joinDay" data-c="'+cid+'" data-d="'+d+'">Juntar empréstimos deste dia</button></div>').join("");
+}
 function loanCard(l){
   const open=l.status==="aberto",lf=open?lateFee(l):0;
-  return '<div class="loan"><div class="head"><b class="num">'+brl(l.principal)+'</b>'+statusChip(l)+'</div>'+
+  return '<div class="loan"><div class="head"><b class="num">'+brl(l.principal)+'</b>'+statusChip(l)+'</div>'+retList(l)+
    '<div class="bar" aria-label="'+l.paid+' de '+l.n+' parcelas pagas"><i style="width:'+(l.paid/l.n*100)+'%"></i></div>'+
    '<div class="grid2 num"><span>Porcentagem</span><b>'+String(l.pct).replace(".",",")+'% · total '+brl(total(l))+'</b>'+
    '<span>Parcelas</span><b>'+l.paid+' de '+l.n+' pagas · '+FREQ[l.freq].toLowerCase()+'</b>'+
@@ -1097,16 +1133,17 @@ function pickClientForLoan(){
 }
 
 function loanForm(cid){
-  const c=client(cid),s=S.settings,t=today();
+  const c=client(cid),s=S.settings,t=today(),dia=loanDoDia(cid);
   sheet('<h3>Empréstimo para '+pv(c.name.replace(/\s*\(exemplo\)/,""))+'</h3><form id="fl"><input type="hidden" id="l-c" value="'+cid+'">'+
    '<div class="f"><label for="l-val">Valor emprestado (R$)</label><input id="l-val" type="number" inputmode="decimal" step="0.01" min="1" required placeholder="1000"></div>'+
-   '<div class="two"><div class="f"><label for="l-pct">Porcentagem sobre o total (%)</label><input id="l-pct" type="number" inputmode="decimal" step="0.1" min="0" value="'+s.pct+'"></div>'+
+   (dia?'<label class="opt" style="height:auto;padding:12px 14px;align-items:flex-start"><input type="checkbox" id="l-join" checked><span>Somar ao empréstimo de hoje ('+brl(dia.principal)+')<br><small style="font-weight:500;color:var(--muted)">Fica um empréstimo só: '+esc(condTxt(dia))+'</small></span></label>':'')+
+   '<div id="l-cond"><div class="two"><div class="f"><label for="l-pct">Porcentagem sobre o total (%)</label><input id="l-pct" type="number" inputmode="decimal" step="0.1" min="0" value="'+s.pct+'"></div>'+
    '<div class="f"><label for="l-n">Nº de parcelas</label><input id="l-n" type="number" inputmode="numeric" min="1" step="1" value="'+s.n+'"></div></div>'+
    '<div class="two"><div class="f"><label for="l-freq">Paga a cada</label><select id="l-freq">'+Object.keys(FREQ).map(k=>'<option value="'+k+'"'+(k===s.freq?" selected":"")+'>'+({diario:"Dia",semanal:"Semana",quinzenal:"15 dias",mensal:"Mês"})[k]+'</option>').join("")+'</select></div>'+
    '<div class="f"><label for="l-due">1º vencimento</label><input id="l-due" type="date" required value="'+addPeriod(t,s.freq)+'"></div></div>'+
    '<div class="f"><label>Multa por dia de atraso</label><div class="seg" id="l-lt" data-v="'+s.lateType+'"><button type="button" data-v="fixo" aria-pressed="'+(s.lateType==="fixo")+'">Valor fixo R$</button><button type="button" data-v="pct" aria-pressed="'+(s.lateType==="pct")+'">Porcentagem %</button></div></div>'+
    '<div class="f"><label for="l-lv" id="l-lvl">'+(s.lateType==="pct"?"% da parcela por dia":"R$ por dia")+'</label><input id="l-lv" type="number" inputmode="decimal" step="0.01" min="0" value="'+s.lateValue+'"></div>'+
-   garBlock("l","")+
+   garBlock("l","")+'</div>'+
    '<div class="calc num" id="l-calc"></div>'+
    '<div class="acts"><button type="button" class="btn ghost" data-close-btn>Cancelar</button><button class="btn pri" type="submit">Salvar</button></div></form>');
   loanCalc();
@@ -1132,6 +1169,10 @@ function loanVals(){
 }
 function loanCalc(){
   const v=loanVals(),el=$("#l-calc");if(!el)return;
+  const j=$("#l-join"),dia=j&&j.checked&&loanDoDia($("#l-c").value);$("#l-cond").hidden=!!dia;
+  if(dia){const L=Object.assign({},dia,{principal:r2(dia.principal+v.principal)}),n=retiradas(dia).length+1;
+    el.innerHTML='<span>Empréstimo de hoje com '+n+' retiradas</span><b>'+brl(L.principal)+'</b><span>Total a receber</span><b class="tot">'+brl(total(L))+'</b>'+
+     '<span>'+L.n+(L.n>1?" parcelas de":" parcela de")+'</span><b>'+brl(parcel(L))+'</b><span>Ou só a porcentagem, por parcela</span><b>'+brl(jurosParc(L))+'</b>';return}
   if(!v.principal){el.innerHTML='<span>Digite o valor para ver a conta.</span><b></b>';return}
   const L=Object.assign({paid:0},v);
   el.innerHTML='<span>Porcentagem ('+String(v.pct).replace(".",",")+'%)</span><b>'+brl(v.principal*v.pct/100)+'</b>'+
@@ -1180,9 +1221,13 @@ function submitClient(){
   loanForm(c.id);view={tab:"clientes",client:c.id};render();toast("Cliente salvo. Agora o empréstimo.");
 }
 function submitLoan(){
-  const v=loanVals();if(!v.principal||!v.firstDue){toast("Preencha valor e vencimento");return}
+  const v=loanVals(),j=$("#l-join"),dia=j&&j.checked&&loanDoDia($("#l-c").value);
+  if(dia){if(!v.principal){toast("Preencha o valor");return}
+    dia.retiradas=retiradas(dia).concat({valor:v.principal,em:new Date().toISOString()});dia.principal=r2(dia.principal+v.principal);
+    save();closeSheet();view={tab:"clientes",client:dia.clientId};render();toast("Somado ao empréstimo de hoje: "+brl(dia.principal));return}
+  if(!v.principal||!v.firstDue){toast("Preencha valor e vencimento");return}
   if(garHas("l")&&!v.guarantee){toast("Escreva qual é a garantia");$("#l-gar").focus();return}
-  const l=Object.assign({id:uid(),clientId:$("#l-c").value,paid:0,nextDue:v.firstDue,status:"aberto",createdAt:today()},v);
+  const l=Object.assign({id:uid(),clientId:$("#l-c").value,paid:0,nextDue:v.firstDue,status:"aberto",createdAt:today(),em:new Date().toISOString()},v);
   S.loans.push(l);save();closeSheet();view={tab:"clientes",client:l.clientId};render();toast("Empréstimo salvo");
 }
 function submitPay(){
@@ -1235,6 +1280,7 @@ document.addEventListener("click",e=>{
   else if(a==="editClient")clientForm(client(b.dataset.c));
   else if(a==="newLoanPick")pickClientForLoan();
   else if(a==="newLoan")loanForm(b.dataset.c);
+  else if(a==="joinDay"){const c=b.dataset.c,d=b.dataset.d;confirmSheet("Juntar os empréstimos deste dia?","Eles viram um empréstimo só, com a soma dos valores e as condições do primeiro. Cada retirada continua aparecendo na lista.","Juntar",()=>juntarDia(c,d))}
   else if(a==="undo")undo(b.dataset.p);
   else if(a==="queue")startQueue();
   else if(a==="msgReset"){const m=$("#m-txt"),l=S.loans.find(x=>x.id===m.dataset.l),s=$("#m-send");m.value=waText(l);if(s&&s.tagName==="A")s.href=waHref(l,m.value)}
