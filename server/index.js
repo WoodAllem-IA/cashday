@@ -304,7 +304,7 @@ async function readBody(req, limit) {
   return s ? JSON.parse(s) : {};
 }
 const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".json": "application/json", ".webmanifest": "application/manifest+json", ".png": "image/png" };
-const PUBLIC = new Set(["/index.html", "/admin.html", "/cadastro.html", "/manifest.webmanifest", "/sw.js", "/icon-180.png", "/icon-192.png", "/icon-512.png"]);
+const PUBLIC = new Set(["/index.html", "/admin.html", "/cadastro.html", "/conheca.html", "/manifest.webmanifest", "/sw.js", "/icon-180.png", "/icon-192.png", "/icon-512.png"]);
 
 async function api(req, res, url) {
   const p = url.pathname;
@@ -515,7 +515,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "OPTIONS") { res.writeHead(204, CORS); return res.end(); }
     if (url.pathname.startsWith("/api/")) return await api(req, res, url);
     // o próprio app também fica disponível no endereço do Railway
-    const f = url.pathname === "/" ? "/index.html" : url.pathname.replace(/\/+$/, "") === "/admin" ? "/admin.html" : /^\/c\/[\w-]+$/.test(url.pathname) ? "/cadastro.html" : url.pathname;
+    const f = url.pathname === "/" ? "/index.html" : url.pathname.replace(/\/+$/, "") === "/admin" ? "/admin.html" : url.pathname.replace(/\/+$/, "") === "/conheca" ? "/conheca.html" : /^\/c\/[\w-]+$/.test(url.pathname) ? "/cadastro.html" : url.pathname;
     if (!PUBLIC.has(f)) { res.writeHead(404); return res.end("Não encontrado"); }
     let body = await fs.readFile(path.join(ROOT, f));
     // avisa o app que ele está no servidor: endereço e opções vêm das variáveis do Railway
