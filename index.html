@@ -939,7 +939,7 @@ const condTxt=l=>String(l.pct).replace(".",",")+"% · "+l.n+(l.n>1?" parcelas":"
 function retList(l){
   const r=retiradas(l);if(r.length<2)return "";
   return '<details class="ret"><summary>'+r.length+' retiradas em '+fmtD(l.createdAt)+'</summary>'+
-    r.map((x,i)=>'<div class="rr num"><span>'+(i+1)+'ª · '+hora(x.em)+'</span><b>'+brl(x.valor)+'</b></div>').join("")+'</details>';
+    r.map((x,i)=>'<div class="rr num"><span>'+(x.ajuste?'Ajuste na edição · '+fmtShort(toISO(new Date(x.em))):(i+1)+'ª · '+hora(x.em))+'</span><b>'+(x.valor>0&&x.ajuste?"+":"")+brl(x.valor)+'</b></div>').join("")+'</details>';
 }
 function juntarDia(cid,dia){
   const ls=S.loans.filter(l=>l.clientId===cid&&l.status==="aberto"&&l.createdAt===dia&&semPagamento(l));if(ls.length<2)return;
@@ -970,8 +970,16 @@ function loanCard(l){
    '<span>Garantia</span><b style="overflow-wrap:anywhere">'+(l.guarantee?pv(l.guarantee):"Sem garantia")+'<br><button class="link" style="color:var(--accent)" data-act="editGar" data-l="'+l.id+'">'+(l.guarantee?"Alterar":"Marcar garantia")+'</button></b>'+
    (lf?'<span style="color:var(--late)">Multa até hoje</span><b style="color:var(--late)">'+brl(lf)+'</b>':'')+'</div>'+
    '<div class="flabel">Fotos (garantia, contrato, comprovantes)</div>'+filesStrip("loan",l.id,l.files)+
+   editHist(l)+
    (open?'<div class="acts"><button class="btn wa" data-charge="'+l.id+'">'+I.wa+'Cobrar</button><button class="btn pri" data-pay="'+l.id+'">'+I.cash+'Recebi</button></div>':'')+
+   (open?'<button class="btn ghost block" data-act="editLoan" data-l="'+l.id+'">Editar empréstimo</button>':'')+
    '<button class="link" data-act="delLoan" data-l="'+l.id+'" style="align-self:flex-start;color:var(--muted)">Excluir empréstimo</button></div>';
+}
+function editHist(l){
+  const e=l.edits||[];if(!e.length)return "";
+  return '<details class="ret"><summary>'+(e.length>1?e.length+" alterações":"1 alteração")+' neste empréstimo</summary>'+
+    e.slice().reverse().map(x=>'<div class="rr" style="display:block"><span>'+fmtD(toISO(new Date(x.em)))+' · '+hora(x.em)+(x.por?' · '+esc(x.por):'')+'</span>'+
+      x.mudou.map(m=>'<div class="num"><b>'+esc(m[0])+':</b> '+esc(m[1])+' → '+esc(m[2])+'</div>').join("")+'</div>').join("")+'</details>';
 }
 const KIND={parcela:"Parcela",juros:"Só porcentagem",quitacao:"Quitação"};
 function histRow(p){
@@ -999,11 +1007,14 @@ function perRange(){
   return["0000-01-01",t];
 }
 // Lucro de um pagamento = valor recebido menos a parte do dinheiro emprestado que voltou
-function payProfit(p){
-  const l=S.loans.find(x=>x.id===p.loanId);if(!l)return p.amount;
+function capBack(p,l){
   const cap=l.principal/l.n;
-  const back=p.kind==="juros"?0:p.kind==="quitacao"?cap*(l.n-((p.prev&&p.prev.paid)??(p.inst-1))):cap;
-  return r2(p.amount-back);
+  return p.kind==="juros"?0:p.kind==="quitacao"?cap*(l.n-((p.prev&&p.prev.paid)??(p.inst-1))):cap;
+}
+function payProfit(p){
+  if(p.back!=null)return r2(p.amount-p.back); // capital guardado quando o empréstimo foi editado
+  const l=S.loans.find(x=>x.id===p.loanId);if(!l)return p.amount;
+  return r2(p.amount-capBack(p,l));
 }
 const monthKey=s=>s.slice(0,7);
 const MES=["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"];
@@ -1164,6 +1175,21 @@ function loanForm(cid){
    '<div class="acts"><button type="button" class="btn ghost" data-close-btn>Cancelar</button><button class="btn pri" type="submit">Salvar</button></div></form>');
   loanCalc();
 }
+function editLoanForm(lid){
+  const l=S.loans.find(x=>x.id===lid),c=client(l.clientId),min=Math.max(1,l.paid+1);
+  sheet('<h3>Editar empréstimo de '+pv(c.name.replace(/\s*\(exemplo\)/,""))+'</h3><form id="fe"><input type="hidden" id="l-c" value="'+l.clientId+'"><input type="hidden" id="l-edit" value="'+lid+'">'+
+   (l.paid?'<p class="note">Ele já pagou '+l.paid+(l.paid>1?" parcelas":" parcela")+'. Esses pagamentos ficam como estão. A conta nova vale para o que falta.</p>':'')+
+   '<div class="f"><label for="l-val">Valor emprestado (R$)</label><input id="l-val" type="number" inputmode="decimal" step="0.01" min="1" required value="'+l.principal+'"></div>'+
+   '<div class="two"><div class="f"><label for="l-pct">Porcentagem sobre o total (%)</label><input id="l-pct" type="number" inputmode="decimal" step="0.1" min="0" value="'+l.pct+'"></div>'+
+   '<div class="f"><label for="l-n">Nº de parcelas</label><input id="l-n" type="number" inputmode="numeric" min="'+min+'" step="1" value="'+l.n+'"></div></div>'+
+   '<div class="two"><div class="f"><label for="l-freq">Paga a cada</label><select id="l-freq">'+Object.keys(FREQ).map(k=>'<option value="'+k+'"'+(k===l.freq?" selected":"")+'>'+({diario:"Dia",semanal:"Semana",quinzenal:"15 dias",mensal:"Mês"})[k]+'</option>').join("")+'</select></div>'+
+   '<div class="f"><label for="l-due">Próximo vencimento</label><input id="l-due" type="date" required value="'+l.nextDue+'"></div></div>'+
+   '<div class="f"><label>Multa por dia de atraso</label><div class="seg" id="l-lt" data-v="'+l.lateType+'"><button type="button" data-v="fixo" aria-pressed="'+(l.lateType==="fixo")+'">Valor fixo R$</button><button type="button" data-v="pct" aria-pressed="'+(l.lateType==="pct")+'">Porcentagem %</button></div></div>'+
+   '<div class="f"><label for="l-lv" id="l-lvl">'+(l.lateType==="pct"?"% da parcela por dia":"R$ por dia")+'</label><input id="l-lv" type="number" inputmode="decimal" step="0.01" min="0" value="'+l.lateValue+'"></div>'+
+   '<div class="calc num" id="l-calc"></div>'+
+   '<div class="acts"><button type="button" class="btn ghost" data-close-btn>Cancelar</button><button class="btn pri" type="submit">Salvar alterações</button></div></form>');
+  loanCalc();
+}
 function garBlock(px,val){
   const has=!!val;
   return '<fieldset class="f radio"><legend>Este empréstimo tem garantia?</legend>'+
@@ -1185,6 +1211,16 @@ function loanVals(){
 }
 function loanCalc(){
   const v=loanVals(),el=$("#l-calc");if(!el)return;
+  const ed=$("#l-edit");
+  if(ed){const old=S.loans.find(x=>x.id===ed.value),L=Object.assign({},old,v,{nextDue:v.firstDue}),falta=L.n-L.paid;
+    if(!v.principal){el.innerHTML='<span>Digite o valor para ver a conta.</span><b></b>';return}
+    if(falta<1){el.className="calc num warn";el.innerHTML='<span style="grid-column:1/-1">Ele já pagou '+L.paid+' parcelas. Coloque pelo menos '+(L.paid+1)+'.</span>';return}
+    el.className="calc num";
+    el.innerHTML='<span>Total a receber</span><b class="tot">'+brl(total(L))+'</b>'+
+     '<span>'+(L.paid?"Faltam "+falta+(falta>1?" parcelas de":" parcela de"):L.n+(L.n>1?" parcelas de":" parcela de"))+'</span><b>'+brl(parcel(L))+'</b>'+
+     '<span>Ou só a porcentagem, por parcela</span><b>'+brl(jurosParc(L))+'</b>'+
+     '<span>Falta pagar</span><b>'+brl(remaining(L))+(remaining(L)!==remaining(old)?' <small style="font-weight:500;color:var(--muted)">(antes '+brl(remaining(old))+')</small>':'')+'</b>';
+    return}
   const j=$("#l-join"),dia=j&&j.checked&&loanDoDia($("#l-c").value);$("#l-cond").hidden=!!dia;
   if(dia){const L=Object.assign({},dia,{principal:r2(dia.principal+v.principal)}),n=retiradas(dia).length+1;
     el.innerHTML='<span>Empréstimo de hoje com '+n+' retiradas</span><b>'+brl(L.principal)+'</b><span>Total a receber</span><b class="tot">'+brl(total(L))+'</b>'+
@@ -1246,6 +1282,25 @@ function submitLoan(){
   const l=Object.assign({id:uid(),clientId:$("#l-c").value,paid:0,nextDue:v.firstDue,status:"aberto",createdAt:today(),em:new Date().toISOString()},v);
   S.loans.push(l);save();closeSheet();view={tab:"clientes",client:l.clientId};render();toast("Empréstimo salvo");
 }
+function submitEdit(){
+  const l=S.loans.find(x=>x.id===$("#l-edit").value),v=loanVals();
+  if(!v.principal||!v.firstDue){toast("Preencha valor e vencimento");return}
+  if(v.n<=l.paid){toast("Ele já pagou "+l.paid+" parcelas. Coloque pelo menos "+(l.paid+1)+".");$("#l-n").focus();return}
+  const pc=x=>String(x).replace(".",",")+"%",mul=(t,x)=>t==="pct"?pc(x)+" da parcela/dia":brl(x)+"/dia",fr=k=>FREQ[k].toLowerCase(),m=[];
+  if(v.principal!==l.principal)m.push(["Valor",brl(l.principal),brl(v.principal)]);
+  if(v.pct!==l.pct)m.push(["Porcentagem",pc(l.pct),pc(v.pct)]);
+  if(v.n!==l.n)m.push(["Parcelas",String(l.n),String(v.n)]);
+  if(v.freq!==l.freq)m.push(["Paga",fr(l.freq),fr(v.freq)]);
+  if(v.firstDue!==l.nextDue)m.push(["Próximo vencimento",fmtD(l.nextDue),fmtD(v.firstDue)]);
+  if(v.lateType!==l.lateType||v.lateValue!==l.lateValue)m.push(["Multa",mul(l.lateType,l.lateValue),mul(v.lateType,v.lateValue)]);
+  if(!m.length){closeSheet();toast("Nada mudou");return}
+  if(v.principal!==l.principal||v.n!==l.n)S.payments.forEach(p=>{if(p.loanId===l.id&&p.back==null)p.back=r2(capBack(p,l))}); // rendimento antigo não muda
+  const em=new Date().toISOString();
+  if(l.retiradas&&l.retiradas.length&&v.principal!==l.principal)l.retiradas.push({valor:r2(v.principal-l.principal),em,ajuste:true});
+  (l.edits=l.edits||[]).push({em,por:SERVER&&C.user?C.user.nome:"",mudou:m});
+  Object.assign(l,{principal:v.principal,pct:v.pct,n:v.n,freq:v.freq,nextDue:v.firstDue,lateType:v.lateType,lateValue:v.lateValue});
+  save();closeSheet();render();toast("Empréstimo atualizado");
+}
 function submitPay(){
   const l=S.loans.find(x=>x.id===$("#p-l").value),date=$("#p-date").value||today(),x=payNumbers(l,payKind,date);
   const amount=r2($("#p-amt").value);
@@ -1304,6 +1359,7 @@ document.addEventListener("click",e=>{
   else if(a==="resetMsg"){S.settings.msg=null;save();render();toast("Mensagens voltaram ao padrão")}
   else if(a==="qskip"){qi++;showQueue()}
   else if(a==="editGar")garForm(b.dataset.l);
+  else if(a==="editLoan")editLoanForm(b.dataset.l);
   else if(a==="delClient"){const c=client(b.dataset.c);confirmSheet("Excluir "+c.name+"?","Os empréstimos e o histórico de pagamentos dessa pessoa também serão apagados.","Excluir",()=>{
     S.loans=S.loans.filter(l=>l.clientId!==c.id);S.payments=S.payments.filter(p=>p.clientId!==c.id);S.clients=S.clients.filter(x=>x.id!==c.id);save();view={tab:"clientes"};toast("Cliente excluído")})}
   else if(a==="delLoan"){const id=b.dataset.l;confirmSheet("Excluir este empréstimo?","Os pagamentos dele também saem do histórico.","Excluir",()=>{
@@ -1398,7 +1454,7 @@ document.addEventListener("change",e=>{
   if(e.target.id==="pf-cli"){PF.cli=e.target.value;render();return}
   if(e.target.id==="s-auto"&&SERVER){$("#s-time").disabled=!e.target.checked;$("#s-time-hint").hidden=e.target.checked;return}
   const n=e.target.name;if(n&&/-g$/.test(n)){const px=n.slice(0,-2),box=$("#"+px+"-gbox");box.hidden=e.target.value!=="sim";if(!box.hidden)$("#"+px+"-gar").focus()}if(e.target.id&&e.target.id.startsWith("l-"))loanCalc();if(e.target.id==="p-date")payCalc(true)});
-document.addEventListener("submit",e=>{e.preventDefault();const id=e.target.id;if(id==="fc")submitClient();else if(id==="fl")submitLoan();else if(id==="fp")submitPay();else if(id==="fg"){
+document.addEventListener("submit",e=>{e.preventDefault();const id=e.target.id;if(id==="fc")submitClient();else if(id==="fl")submitLoan();else if(id==="fe")submitEdit();else if(id==="fp")submitPay();else if(id==="fg"){
   const l=S.loans.find(x=>x.id===$("#g-l").value),g=garVal("g");if(garHas("g")&&!g){toast("Escreva qual é a garantia");return}
   l.guarantee=g;save();closeSheet();render();toast("Garantia salva")}});
 document.addEventListener("keydown",e=>{if(e.key==="Escape")closeSheet()});
