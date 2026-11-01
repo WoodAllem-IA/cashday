@@ -9,6 +9,7 @@
 //   EVOLUTION_URL        endereço da Evolution (opcional, para o envio automático)
 //   EVOLUTION_APIKEY     chave global da Evolution (AUTHENTICATION_API_KEY)
 //   EVOLUTION_INSTANCIA  (opcional) instância já conectada que o administrador continua usando
+//   CONSULTA_LIMITE_DIA  (opcional) quantas consultas de CPF cada conta pode fazer por dia (padrão 50)
 // Cada conta tem a própria instância na Evolution e conecta o WhatsApp dela pelo QR Code no app.
 import http from "node:http";
 import crypto from "node:crypto";
@@ -45,6 +46,7 @@ async function migrate() {
     alter table usuarios add column if not exists instancia text;
     alter table enviados add column if not exists usuario int not null default 1;
     alter table envio_log add column if not exists usuario int not null default 1;
+    create table if not exists consultas (id serial primary key, em timestamptz not null default now(), dia text not null, usuario int not null, cpf text not null, achou int not null default 0);
     create table if not exists convites (token text primary key, usuario int not null, criado timestamptz not null default now(), usado timestamptz, cliente text);
   `);
   // o administrador vem das variáveis do Railway (ADMIN_USUARIO e APP_SENHA)
@@ -294,6 +296,74 @@ async function roboStatus(u) {
   };
 }
 
+/* ---------- consulta de CPF compartilhada ----------
+   Procura o CPF nos clientes de todas as contas e devolve só um resumo:
+   quantos credores, empréstimos em aberto/quitados, pagamentos em dia ou com atraso,
+   atraso agora e valores em faixas. Nunca diz quem emprestou nem o valor exato.
+   Clientes e empréstimos de exemplo ficam de fora. */
+const LIMITE_CONSULTA = Math.max(1, Number(process.env.CONSULTA_LIMITE_DIA) || 50);
+const cpfHash = cpf => crypto.createHmac("sha256", secret()).update("cpf:" + cpf).digest("base64url").slice(0, 22);
+const diasEntre = (a, b) => Math.round((Date.UTC(...a.split("-").map((n, i) => i === 1 ? n - 1 : +n)) - Date.UTC(...b.split("-").map((n, i) => i === 1 ? n - 1 : +n))) / 864e5);
+const r2 = v => Math.round(v * 100) / 100;
+function faixa(v) {
+  if (v <= 0) return "Nada";
+  const f = [500, 1000, 2000, 5000, 10000, 20000, 50000];
+  const de = [0, ...f].filter(x => x < v).pop(), ate = f.find(x => x >= v);
+  const b = n => "R$ " + n.toLocaleString("pt-BR");
+  return ate ? (de ? "De " + b(de) + " a " + b(ate) : "Até " + b(ate)) : "Mais de " + b(f[f.length - 1]);
+}
+const iniciais = n => { const p = String(n || "").replace(/\s*\(exemplo\)/, "").trim().split(/\s+/); return p[0] ? p[0] + p.slice(1).filter(x => x.length > 2).map(x => " " + x[0].toUpperCase() + ".").join("") : ""; };
+const penal = d => d <= 0 ? 0 : d <= 7 ? 1 : d <= 30 ? 2 : 3;
+export function resumoCPF(contas, cpf, hoje, euId) {
+  const r = { credores: 0, naSuaConta: false, emprestimos: 0, abertos: 0, quitados: 0, pagamentos: 0, emDia: 0, comAtraso: 0, maiorAtrasoPago: 0,
+    atrasadosAgora: 0, maiorAtrasoAgora: 0, emAberto: 0, totalPego: 0, desde: null, ultimo: null, nome: "", score: 10 };
+  const ev = [];
+  for (const { id, dados } of contas) {
+    const cs = (dados && dados.clients || []).filter(c => !c.sample && String(c.cpf || "").replace(/\D/g, "") === cpf);
+    if (!cs.length) continue;
+    const ids = new Set(cs.map(c => c.id));
+    const ls = (dados.loans || []).filter(l => ids.has(l.clientId) && !l.sample);
+    if (id === euId) r.naSuaConta = true;
+    if (!r.nome) r.nome = iniciais(cs[0].name);
+    if (!ls.length) continue;
+    r.credores++;
+    for (const l of ls) {
+      const principal = Number(l.principal) || 0, n = Math.max(1, Number(l.n) || 1), total = principal * (1 + (Number(l.pct) || 0) / 100);
+      r.emprestimos++; r.totalPego += principal;
+      const quando = String(l.createdAt || l.firstDue || "").slice(0, 7);
+      if (quando) { if (!r.desde || quando < r.desde) r.desde = quando; if (!r.ultimo || quando > r.ultimo) r.ultimo = quando; }
+      if (l.status === "aberto") {
+        r.abertos++; r.emAberto += total / n * Math.max(0, n - (Number(l.paid) || 0));
+        if (l.nextDue && l.nextDue < hoje) { const d = diasEntre(hoje, l.nextDue); r.atrasadosAgora++; r.maiorAtrasoAgora = Math.max(r.maiorAtrasoAgora, d); ev.push(d); }
+      } else r.quitados++;
+    }
+    const lids = new Set(ls.map(l => l.id));
+    for (const p of dados.payments || []) {
+      if (p.sample || !lids.has(p.loanId)) continue;
+      r.pagamentos++;
+      const d = Number(p.lateDays) || 0;
+      if (d > 0) { r.comAtraso++; r.maiorAtrasoPago = Math.max(r.maiorAtrasoPago, d); ev.push(d); } else r.emDia++;
+    }
+  }
+  r.score = Math.max(0, 10 - ev.reduce((s, d) => s + penal(d), 0));
+  r.achou = r.credores > 0;
+  r.faixaAberto = faixa(r2(r.emAberto)); r.faixaTotal = faixa(r2(r.totalPego));
+  delete r.emAberto; delete r.totalPego;
+  return r;
+}
+async function consultarCPF(eu, cpf) {
+  const { date } = nowBR();
+  const usadas = (await db.query("select count(*)::int as n from consultas where usuario=$1 and dia=$2", [eu.id, date])).rows[0].n;
+  if (usadas >= LIMITE_CONSULTA) return { erro: "Você já fez " + LIMITE_CONSULTA + " consultas hoje. Amanhã libera de novo." };
+  // só contas ativas entram; a busca no jsonb acha os candidatos e o resumo confere tudo de novo
+  const contas = (await db.query(`select e.id, e.dados from estado e join usuarios u on u.id=e.id
+    where u.ativo and exists (select 1 from jsonb_array_elements(coalesce(e.dados->'clients','[]'::jsonb)) c
+      where regexp_replace(coalesce(c->>'cpf',''), '\\D', '', 'g') = $1)`, [cpf])).rows;
+  const r = resumoCPF(contas, cpf, date, eu.id);
+  await db.query("insert into consultas (dia, usuario, cpf, achou) values ($1,$2,$3,$4)", [date, eu.id, cpfHash(cpf), r.credores]);
+  return { ok: true, ...r, restantes: LIMITE_CONSULTA - usadas - 1 };
+}
+
 /* ---------- http ---------- */
 const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS", "Access-Control-Allow-Headers": "Content-Type,Authorization" };
 const send = (res, code, obj, headers) => { res.writeHead(code, { ...CORS, "Content-Type": "application/json; charset=utf-8", ...headers }); res.end(JSON.stringify(obj)); };
@@ -416,6 +486,12 @@ async function api(req, res, url) {
     return send(res, 404, { ok: false, erro: "Caminho desconhecido" });
   }
 
+  if (p === "/api/consulta" && req.method === "POST") {
+    const cpf = String((await readBody(req, 1e4)).cpf || "").replace(/\D/g, "");
+    if (!cpfOk(cpf)) return send(res, 400, { ok: false, erro: "CPF inválido. Confira os números." });
+    const r = await consultarCPF(eu, cpf);
+    return send(res, r.erro ? 429 : 200, r.erro ? { ok: false, erro: r.erro } : r);
+  }
   if (p === "/api/convites" && req.method === "POST") {
     const token = crypto.randomBytes(18).toString("base64url");
     await db.query("insert into convites (token, usuario) values ($1,$2)", [token, uid]);

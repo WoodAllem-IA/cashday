@@ -863,6 +863,8 @@ function vClientes(){
    '<button class="btn sec2 block" data-act="newClient" style="margin-bottom:12px">'+I.plus.replace('stroke-width="2.6"','stroke-width="2.6" width="18" height="18"')+'Novo cliente</button>'+
    (SERVER?'<button class="invite" data-act="inviteLink"><span class="ico"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 14a4.5 4.5 0 0 0 6.4 0l3.2-3.2a4.5 4.5 0 0 0-6.4-6.4L12 5.6"/><path d="M14 10a4.5 4.5 0 0 0-6.4 0l-3.2 3.2a4.5 4.5 0 0 0 6.4 6.4L12 18.4"/></svg></span>'+
     '<span class="txt"><b>Mandar link para o cliente se cadastrar</b><small>Ele preenche os dados e tira a foto sozinho</small></span>'+I.chev+'</button>':'')+
+   (SERVER?'<button class="invite" data-act="consulta"><span class="ico"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></span>'+
+    '<span class="txt"><b>Consultar CPF</b><small>Veja se a pessoa já pegou com outros credores do CashDay</small></span>'+I.chev+'</button>':'')+
    '<div class="list" id="clist">'+(list.length?list.map(cliRow).join(""):'<div class="empty">Nenhum cliente'+(q?' com esse nome':'')+'. Toque em Novo cliente para começar.</div>')+'</div>';
 }
 function cliRow(c){
@@ -897,7 +899,8 @@ function vCliente(id){
    '<span>Endereço</span><b style="overflow-wrap:anywhere">'+esc(c.address||"Não informado")+'</b></div>'+(c.viaLink?'<div class="hint" style="font-size:13px;color:var(--muted)">O próprio cliente fez este cadastro pelo link.</div>':'')+(c.notes?'<div class="note">'+esc(c.notes)+'</div>':'')+
    '<div class="flabel">Fotos e documentos</div>'+filesStrip("client",id,c.files)+
    '<div class="acts"><button class="btn pri" data-act="newLoan" data-c="'+id+'">'+I.plus.replace('stroke-width="2.6"','stroke-width="2.6" width="18" height="18"')+'Emprestar</button><button class="btn ghost" data-act="editClient" data-c="'+id+'">Editar</button></div>'+
-   '<button class="btn wa block" data-act="situacao" data-c="'+id+'">'+I.wa+'Enviar situação</button></div>'+
+   '<button class="btn wa block" data-act="situacao" data-c="'+id+'">'+I.wa+'Enviar situação</button>'+
+   (SERVER&&c.cpf?'<button class="btn ghost block" data-act="consulta" data-cpf="'+esc(c.cpf)+'">Consultar CPF no CashDay</button>':'')+'</div>'+
    sec("Empréstimos",ls.length?String(ls.length):"")+juntarAviso(id)+
    (ls.length?'<div class="list">'+ls.map(loanCard).join("")+'</div>':'<div class="empty">Nenhum empréstimo ainda.</div>')+
    sec("Histórico de pagamentos",ps.length?"Total pago "+brl(paidTot):"")+
@@ -1104,6 +1107,44 @@ function vAjustes(){
   (S.clients.some(c=>c.sample)?'':'<div class="card"><h3>Clientes de exemplo</h3><span class="hint" style="font-size:13px;color:var(--muted)">Coloca 15 clientes inventados, com empréstimos em dia, vencendo hoje, atrasados e quitados, para mostrar o app e tirar prints. O robô nunca cobra clientes de exemplo, e o aviso "Apagar exemplos" no topo tira todos de uma vez.</span>'+
    '<button class="btn sec2" data-act="addSamples">Colocar clientes de exemplo</button></div>')+
   '<div class="card"><h3>Apagar tudo</h3><button class="btn danger" data-act="wipe">Apagar todos os dados</button></div>';
+}
+
+/* ---------- consulta de CPF entre todas as contas do CashDay ----------
+   O servidor devolve só um resumo: nunca diz quem emprestou nem o valor exato. */
+function consultaSheet(cpf){
+  sheet('<h3>Consultar CPF</h3><p class="hint" style="font-size:13px;color:var(--muted);margin:0 0 10px">Procura o CPF em todas as contas do CashDay. Mostra só o resumo do histórico, sem dizer quem emprestou.</p>'+
+   '<div class="f"><label for="k-cpf">CPF</label><input id="k-cpf" inputmode="numeric" placeholder="000.000.000-00" maxlength="14" autocomplete="off" value="'+esc(fmtCPF(cpf||""))+'"></div>'+
+   '<button class="btn pri block" data-act="consultaGo">Consultar</button><div id="k-res"></div>');
+  if(cpf)consultaGo();
+}
+function consultaGo(){
+  const el=$("#k-cpf"),cpf=el?el.value.replace(/\D/g,""):"",box=$("#k-res");
+  if(!cpfOk(cpf)){toast("CPF inválido. Confira os números.");if(el)el.focus();return}
+  box.innerHTML='<div class="note" style="margin-top:12px">Consultando...</div>';
+  cloudFetch("/api/consulta",{method:"POST",body:{cpf}}).then(r=>{box.innerHTML=consultaRes(r)},e=>{box.innerHTML='<div class="note" style="margin-top:12px;color:var(--late)">'+esc(e.message)+'</div>'});
+}
+function consultaRes(r){
+  const mes=m=>{if(!m)return"";const[y,mm]=m.split("-");return["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"][Number(mm)-1]+"/"+y};
+  const dias=n=>n+(n===1?" dia":" dias");
+  const resta='<p class="hint" style="font-size:12px;color:var(--muted);margin:10px 0 0">Você ainda pode fazer '+r.restantes+(r.restantes===1?" consulta":" consultas")+' hoje.</p>';
+  if(!r.achou)return '<div class="card" style="margin-top:12px"><h3>Nada encontrado</h3><div class="note" style="background:transparent;padding:0">'+
+    (r.nome?'Este CPF está cadastrado'+(r.naSuaConta?' (inclusive na sua conta)':'')+', mas nunca pegou empréstimo no CashDay.':'Nenhum credor do CashDay tem empréstimo com este CPF.')+'</div>'+resta+'</div>';
+  const tone=r.score>=8?"good":r.score>=5?"mid":"bad",col=tone==="good"?"var(--ok)":tone==="mid"?"var(--today)":"var(--late)";
+  const situ=r.atrasadosAgora?'<span class="chip late">Em atraso agora · '+dias(r.maiorAtrasoAgora)+'</span>':r.abertos?'<span class="chip soon">Pagando em dia</span>':'<span class="chip ok">Sem dívida aberta</span>';
+  return '<div class="card" style="margin-top:12px"><h3 style="margin-bottom:4px">'+pv(r.nome||"Resultado")+'</h3>'+
+   '<div class="sbar"><span class="score '+tone+' big">'+r.score+'</span><div class="meter"><div><i style="width:'+(r.score*10)+'%;background:'+col+'"></i></div><small>Score '+r.score+' de 10 · '+SCORE_LABEL[tone]+'</small></div></div>'+
+   '<div style="margin:8px 0">'+situ+'</div>'+
+   '<div class="grid2 num">'+
+    '<span>Credores</span><b>'+r.credores+(r.credores>1?" credores":" credor")+(r.naSuaConta?" (inclui você)":"")+'</b>'+
+    '<span>Empréstimos</span><b>'+r.emprestimos+' no total</b>'+
+    '<span>Em aberto</span><b>'+r.abertos+(r.abertos?' · '+esc(r.faixaAberto):'')+'</b>'+
+    '<span>Quitados</span><b>'+r.quitados+'</b>'+
+    '<span>Pagamentos</span><b>'+r.pagamentos+(r.pagamentos?' · '+r.emDia+' em dia, '+r.comAtraso+' com atraso':'')+'</b>'+
+    (r.comAtraso?'<span>Maior atraso pago</span><b>'+dias(r.maiorAtrasoPago)+'</b>':'')+
+    '<span>Atrasados agora</span><b>'+(r.atrasadosAgora?r.atrasadosAgora+' · maior '+dias(r.maiorAtrasoAgora):'Nenhum')+'</b>'+
+    '<span>Já pegou ao todo</span><b>'+esc(r.faixaTotal)+'</b>'+
+    (r.desde?'<span>Período</span><b>'+(r.desde===r.ultimo?mes(r.desde):mes(r.desde)+' a '+mes(r.ultimo))+'</b>':'')+
+   '</div>'+resta+'</div>';
 }
 
 /* ---------- folhas (formulários) ---------- */
@@ -1402,6 +1443,8 @@ document.addEventListener("click",e=>{
   else if(a==="admPwSave"){cloudFetch("/api/usuarios/"+b.dataset.u,{method:"PUT",body:{senha:$("#u-npw").value}}).then(j=>{if(!j.ok)throw new Error(j.erro);closeSheet();toast("Senha trocada. Passe a nova senha para a pessoa.")},e=>toast(e.message))}
   else if(a==="admBlock"){const u=(USERS||[]).find(x=>x.id==b.dataset.u);if(!u)return;
     cloudFetch("/api/usuarios/"+u.id,{method:"PUT",body:{ativo:!u.ativo}}).then(j=>{if(!j.ok)throw new Error(j.erro);toast(u.ativo?u.nome+" bloqueado":u.nome+" desbloqueado");return loadUsers()}).then(admList,e=>toast(e.message))}
+  else if(a==="consulta"){consultaSheet(b.dataset.cpf||"")}
+  else if(a==="consultaGo"){consultaGo()}
   else if(a==="whatsQr"){qrSheet()}
   else if(a==="whatsOut"){confirmSheet("Desconectar o WhatsApp?","O robô para de mandar as cobranças desta conta até você conectar de novo pelo QR Code.","Desconectar",()=>{
     cloudFetch("/api/whats/desconectar",{method:"POST",body:{}}).then(()=>{toast("WhatsApp desconectado");syncRobot()},e=>toast("Não desconectou: "+e.message))})}
@@ -1429,7 +1472,7 @@ document.addEventListener("input",e=>{
   if(id==="q"){view.q=e.target.value;const q=view.q.toLowerCase();
     const list=S.clients.filter(c=>!q||c.name.toLowerCase().includes(q)||String(c.phone).includes(q)||String(c.cpf||"").includes(q.replace(/\D/g,"")||"#")).sort((a,b)=>a.name.localeCompare(b.name,"pt-BR"));
     $("#clist").innerHTML=list.length?list.map(cliRow).join(""):'<div class="empty">Nenhum cliente com esse nome.</div>'}
-  if(id==="c-cpf"){const d=e.target.value.replace(/\D/g,"").slice(0,11);e.target.value=d.length>9?d.slice(0,3)+"."+d.slice(3,6)+"."+d.slice(6,9)+"-"+d.slice(9):d.length>6?d.slice(0,3)+"."+d.slice(3,6)+"."+d.slice(6):d.length>3?d.slice(0,3)+"."+d.slice(3):d}
+  if(id==="c-cpf"||id==="k-cpf"){const d=e.target.value.replace(/\D/g,"").slice(0,11);e.target.value=d.length>9?d.slice(0,3)+"."+d.slice(3,6)+"."+d.slice(6,9)+"-"+d.slice(9):d.length>6?d.slice(0,3)+"."+d.slice(3,6)+"."+d.slice(6):d.length>3?d.slice(0,3)+"."+d.slice(3):d}
   if(id&&id.startsWith("l-"))loanCalc();
   if(id==="p-date")payCalc(true);
 });
@@ -1441,7 +1484,7 @@ document.addEventListener("change",e=>{
 document.addEventListener("submit",e=>{e.preventDefault();const id=e.target.id;if(id==="fc")submitClient();else if(id==="fl")submitLoan();else if(id==="fe")submitEdit();else if(id==="fp")submitPay();else if(id==="fg"){
   const l=S.loans.find(x=>x.id===$("#g-l").value),g=garVal("g");if(garHas("g")&&!g){toast("Escreva qual é a garantia");return}
   l.guarantee=g;save();closeSheet();render();toast("Garantia salva")}});
-document.addEventListener("keydown",e=>{if(e.key==="Escape")closeSheet()});
+document.addEventListener("keydown",e=>{if(e.key==="Escape")closeSheet();if(e.key==="Enter"&&e.target.id==="k-cpf"){e.preventDefault();consultaGo()}});
 document.addEventListener("visibilitychange",()=>{if(!document.hidden){if(cloudOn())pullCloud();if(roboOn())syncRobot();if(!$("#layer").innerHTML)render()}});
 
 document.body.classList.toggle("priv",PRIV);
