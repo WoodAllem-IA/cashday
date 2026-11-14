@@ -92,6 +92,10 @@ function cpfOk(c){c=c.replace(/\D/g,"");if(c.length!==11||/^(\d)\1+$/.test(c))re
   const dv=n=>{let s=0;for(let i=0;i<n;i++)s+=Number(c[i])*(n+1-i);const r=(s*10)%11;return r===10?0:r};return dv(9)===Number(c[9])&&dv(10)===Number(c[10])}
 const mask=(v,p)=>{v=v.replace(/\D/g,"");let o="",i=0;for(const ch of p){if(i>=v.length)break;if(ch==="9")o+=v[i++];else o+=ch}return o};
 const fmtNasc=s=>s?s.split("-").reverse().join("/"):"";
+/* "25/03/1990" -> "1990-03-25" (formato que o servidor espera); vazio se incompleto */
+const isoNasc=v=>{const m=v.replace(/\D/g,"").match(/^(\d{2})(\d{2})(\d{4})$/);return m?m[3]+"-"+m[2]+"-"+m[1]:""};
+const nascOk=s=>{if(!/^\d{4}-\d{2}-\d{2}$/.test(s))return false;const [a,m,d]=s.split("-").map(Number),x=new Date(Date.UTC(a,m-1,d));
+  return x.getUTCFullYear()===a&&x.getUTCMonth()===m-1&&x.getUTCDate()===d&&a>=1900&&x<=new Date()};
 
 let de="",at=0,fotoUrl="";
 const D={foto:"",nome:"",cpf:"",nascimento:"",whatsapp:"",cep:"",endereco:"",numero:"",complemento:"",bairro:"",cidade:"",uf:""};
@@ -108,9 +112,9 @@ const STEPS=[
   {t:"Qual é o seu CPF?",sub:"Só os números.",
    html:()=>'<input class="big" id="cpf" inputmode="numeric" placeholder="000.000.000-00" maxlength="14" value="'+esc(D.cpf)+'">',
    read:()=>{D.cpf=$("#cpf").value},ok:()=>cpfOk(D.cpf)?null:"CPF inválido. Confira os números."},
-  {t:"Qual é a sua data de nascimento?",sub:"",
-   html:()=>'<input class="big" id="nasc" type="date" max="'+new Date().toISOString().slice(0,10)+'" value="'+esc(D.nascimento)+'">',
-   read:()=>{D.nascimento=$("#nasc").value},ok:()=>/^\d{4}-\d{2}-\d{2}$/.test(D.nascimento)&&D.nascimento>"1900"?null:"Coloque a data de nascimento."},
+  {t:"Qual é a sua data de nascimento?",sub:"Só os números: dia, mês e ano.",
+   html:()=>'<input class="big" id="nasc" type="text" inputmode="numeric" autocomplete="bday" placeholder="DD/MM/AAAA" maxlength="10" value="'+esc(fmtNasc(D.nascimento))+'">',
+   read:()=>{D.nascimento=isoNasc($("#nasc").value)},ok:()=>nascOk(D.nascimento)?null:"Data inválida. Escreva assim: 25/03/1990."},
   {t:"Qual é o seu WhatsApp?",sub:"Com DDD.",
    html:()=>'<input class="big" id="whats" type="tel" inputmode="tel" autocomplete="tel" placeholder="(11) 98765-4321" maxlength="15" value="'+esc(D.whatsapp)+'">',
    read:()=>{D.whatsapp=$("#whats").value},ok:()=>D.whatsapp.replace(/\D/g,"").length>=10?null:"Coloque o WhatsApp com DDD."},
@@ -140,13 +144,14 @@ function show(){
    '<div class="err" id="err" hidden></div><div class="nav">'+(at?'<button type="button" class="btn back" id="back">Voltar</button>':'')+
    '<button class="btn pri" id="go" type="submit">'+(last?'Enviar cadastro':'Continuar')+'</button></div></form>';
   wire();
-  const first=$("#f input:not([type=file]):not([type=checkbox])");if(first&&!("ontouchstart" in window&&at===3))first.focus();
+  const first=$("#f input:not([type=file]):not([type=checkbox])");if(first)first.focus();
 }
 function wire(){
   $("#f").addEventListener("submit",next);
   if($("#back"))$("#back").addEventListener("click",()=>{const s=STEPS[at];if(s.read)s.read();at--;show()});
   if($("#cam"))$("#cam").addEventListener("change",e=>{const f=e.target.files[0];if(f)tirarFoto(f)});
   if($("#cpf"))$("#cpf").addEventListener("input",e=>e.target.value=mask(e.target.value,"999.999.999-99"));
+  if($("#nasc"))$("#nasc").addEventListener("input",e=>e.target.value=mask(e.target.value,"99/99/9999"));
   if($("#whats"))$("#whats").addEventListener("input",e=>{const d=e.target.value.replace(/\D/g,"");e.target.value=mask(d,d.length>10?"(99) 99999-9999":"(99) 9999-9999")});
   if($("#cep"))$("#cep").addEventListener("input",e=>{e.target.value=mask(e.target.value,"99999-999");if(e.target.value.length===9)buscaCep(e.target.value)});
 }
