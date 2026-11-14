@@ -364,7 +364,9 @@ function queuePush(){if(!cloudOn())return;dirty=true;edits++;clearTimeout(pushT)
 function mergeState(remote,local){
   const out=Object.assign(blank(),remote,{settings:local.settings||remote.settings,robot:local.robot});
   ["clients","loans","payments"].forEach(k=>{
-    const m=new Map((remote[k]||[]).map(x=>[x.id,x]));(local[k]||[]).forEach(x=>m.set(x.id,x));out[k]=[...m.values()];
+    const m=new Map((remote[k]||[]).map(x=>[x.id,x]));
+    // cliente que completou o cadastro pelo link: vale o que está no servidor
+    (local[k]||[]).forEach(x=>{const r=m.get(x.id);if(!(r&&r.linkEm&&r.linkEm>(x.linkEm||"")))m.set(x.id,x)});out[k]=[...m.values()];
   });
   return out;
 }
@@ -384,8 +386,9 @@ async function pullCloud(){
   try{
     const j=await cloudFetch("/api/estado"),initial=!ready;
     if(!ready){ready=true;C.versao=0;if(!j.dados&&!$("#layer").innerHTML)render()}
-    if(j.ok&&j.dados&&j.versao>(C.versao||0)){const had=new Set(S.clients.map(c=>c.id)),first=initial;S=Object.assign(blank(),j.dados,{robot:S.robot});
-      if(!first){const nv=S.clients.filter(c=>c.viaLink&&!had.has(c.id));if(nv.length)setTimeout(()=>toast(nv.length>1?nv.length+" novos cadastros pelo link":"Novo cadastro pelo link: "+nv[0].name),50)}C.versao=j.versao;saveC();
+    if(j.ok&&j.dados&&j.versao>(C.versao||0)){const had=new Set(S.clients.map(c=>c.id)),lk=new Map(S.clients.map(c=>[c.id,c.linkEm||""])),first=initial;S=Object.assign(blank(),j.dados,{robot:S.robot});
+      if(!first){const nv=S.clients.filter(c=>c.viaLink&&!had.has(c.id));if(nv.length)setTimeout(()=>toast(nv.length>1?nv.length+" novos cadastros pelo link":"Novo cadastro pelo link: "+nv[0].name),50);
+        else{const up=S.clients.filter(c=>c.linkEm&&had.has(c.id)&&c.linkEm>lk.get(c.id));if(up.length)setTimeout(()=>toast(up.length>1?up.length+" clientes atualizaram o cadastro":up[0].name+" atualizou o cadastro"),50)}}C.versao=j.versao;saveC();
       keep();if(!$("#layer").innerHTML)render()}
     cloud={state:"ok",err:"",at:new Date()};
   }catch(e){cloud={state:"err",err:String(e.message||e),at:cloud.at};if(!ready)render()}
@@ -893,14 +896,32 @@ function cliRow(c){
 
 const saudacao=()=>{const h=new Date().getHours();return h<5?"Boa noite":h<12?"Bom dia":h<18?"Boa tarde":"Boa noite"};
 const idade=b=>{const d=parse(b),t=new Date();let a=t.getFullYear()-d.getFullYear();if(t.getMonth()<d.getMonth()||(t.getMonth()===d.getMonth()&&t.getDate()<d.getDate()))a--;return a};
-/* ---------- link para o cliente se cadastrar sozinho ---------- */
-function inviteLink(){
+/* o que ainda falta no cadastro (mesma regra do servidor) */
+function faltaCad(c){
+  const f=[];
+  if(!(c.files||[]).some(x=>/^Foto do cliente/.test(x.name||"")))f.push("foto");
+  if(String(c.name||"").trim().split(/\s+/).length<2)f.push("nome completo");
+  if(!cpfOk(c.cpf))f.push("CPF");
+  if(!c.birth)f.push("nascimento");
+  if(String(c.phone||"").replace(/\D/g,"").length<10)f.push("WhatsApp");
+  if(!String(c.address||"").trim())f.push("endereço");
+  return f;
+}
+const listaE=a=>a.length>1?a.slice(0,-1).join(", ")+" e "+a[a.length-1]:a[0]||"";
+/* ---------- link para o cliente se cadastrar sozinho (ou completar o cadastro, com cid) ---------- */
+function inviteLink(cid){
+  const c=cid&&client(cid);
   toast("Criando link...");
-  cloudFetch("/api/convites",{method:"POST",body:{}}).then(j=>{
-    const link=location.origin+"/c/"+j.token,txt=saudacao()+"! Para fazer seu cadastro, toque no link e preencha seus dados. Vai pedir uma foto sua.\n"+link;
-    sheet('<h3>Link de cadastro</h3><p class="hint" style="font-size:13px;color:var(--muted)">O cliente preenche nome, CPF, nascimento, WhatsApp, endereço e tira uma foto. Quando ele enviar, o cadastro aparece sozinho na sua lista. O link vale para 1 cadastro, por '+j.dias+' dias.</p>'+
+  cloudFetch("/api/convites",{method:"POST",body:c?{cliente:c.id}:{}}).then(j=>{
+    const link=location.origin+"/c/"+j.token,f=c?faltaCad(c):[];
+    const txt=c?saudacao()+"! Para atualizar seu cadastro, toque no link e complete seus dados.\n"+link
+      :saudacao()+"! Para fazer seu cadastro, toque no link e preencha seus dados. Vai pedir uma foto sua.\n"+link;
+    const zap=c&&String(c.phone||"").replace(/\D/g,"");
+    sheet('<h3>'+(c?'Link para atualizar o cadastro':'Link de cadastro')+'</h3><p class="hint" style="font-size:13px;color:var(--muted)">'+
+      (c?(f.length?esc(c.name.split(" ")[0])+' vai preencher só o que falta: '+esc(listaE(f))+'.':'O cadastro já está completo; o cliente só confirma.')+' Quando o cliente enviar, os dados entram sozinhos aqui. O link vale 1 vez, por '+j.dias+' dias.'
+        :'O cliente preenche nome, CPF, nascimento, WhatsApp, endereço e tira uma foto. Quando ele enviar, o cadastro aparece sozinho na sua lista. O link vale para 1 cadastro, por '+j.dias+' dias.')+'</p>'+
       '<div class="note" style="overflow-wrap:anywhere;font-size:14px">'+esc(link)+'</div>'+
-      '<div class="list"><a class="btn pri block" href="https://wa.me/?text='+encodeURIComponent(txt)+'" target="_blank" rel="noopener">Mandar pelo WhatsApp</a>'+
+      '<div class="list"><a class="btn pri block" href="https://wa.me/'+(zap&&zap.length>=10?(zap.length<=11?"55":"")+zap:"")+'?text='+encodeURIComponent(txt)+'" target="_blank" rel="noopener">Mandar pelo WhatsApp</a>'+
       '<button class="btn sec2 block" data-act="copyInvite" data-l="'+esc(link)+'">Copiar link</button></div>');
   },e=>toast("Não criou o link: "+e.message));
 }
@@ -916,6 +937,8 @@ function vCliente(id){
    '<div class="flabel">Fotos e documentos</div>'+filesStrip("client",id,c.files)+
    '<div class="acts"><button class="btn pri" data-act="newLoan" data-c="'+id+'">'+I.plus.replace('stroke-width="2.6"','stroke-width="2.6" width="18" height="18"')+'Emprestar</button><button class="btn ghost" data-act="editClient" data-c="'+id+'">Editar</button></div>'+
    '<button class="btn wa block" data-act="situacao" data-c="'+id+'">'+I.wa+'Enviar situação</button>'+
+   (SERVER?(()=>{const f=faltaCad(c);return '<button class="btn ghost block" data-act="inviteLink" data-c="'+id+'">Mandar link para atualizar cadastro</button>'+
+     (f.length?'<div class="hint" style="font-size:13px;color:var(--muted)">Falta: '+esc(listaE(f))+'.</div>':'')})():'')+
    (SERVER&&c.cpf?'<button class="btn ghost block" data-act="consulta" data-cpf="'+esc(c.cpf)+'">Consultar CPF no CashDay</button>':'')+'</div>'+
    sec("Empréstimos",ls.length?String(ls.length):"")+juntarAviso(id)+
    (ls.length?'<div class="list">'+ls.map(loanCard).join("")+'</div>':'<div class="empty">Nenhum empréstimo ainda.</div>')+
@@ -1435,7 +1458,7 @@ document.addEventListener("click",e=>{
     const owner=k==="client"?client(oid):S.loans.find(x=>x.id===oid);if(owner){owner.files=(owner.files||[]).filter(f=>f.id!==fid);save()}
     cloudFetch("/api/arquivos/"+fid,{method:"DELETE"}).catch(()=>{});toast("Arquivo apagado")})}
   else if(a==="roboRefresh"){syncRobot(true)}
-  else if(a==="inviteLink")inviteLink();
+  else if(a==="inviteLink")inviteLink(b.dataset.c);
   else if(a==="situacao")situacaoForm(b.dataset.c);
   else if(a==="sitApi")sitApi(b);
   else if(a==="copyInvite"){const l=b.dataset.l;(navigator.clipboard?navigator.clipboard.writeText(l):Promise.reject()).then(()=>toast("Link copiado"),()=>toast("Segure o link acima para copiar"))}

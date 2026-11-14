@@ -48,6 +48,7 @@ async function migrate() {
     alter table envio_log add column if not exists usuario int not null default 1;
     create table if not exists consultas (id serial primary key, em timestamptz not null default now(), dia text not null, usuario int not null, cpf text not null, achou int not null default 0);
     create table if not exists convites (token text primary key, usuario int not null, criado timestamptz not null default now(), usado timestamptz, cliente text);
+    alter table convites add column if not exists para text;
   `);
   // o administrador vem das variáveis do Railway (ADMIN_USUARIO e APP_SENHA)
   // nome do administrador para a saudação: variável ADMIN_NOME
@@ -103,6 +104,25 @@ async function conviteValido(token, q = db) {
   const c = r.rows[0];
   return c && c.ativo && !c.usado ? c : null;
 }
+// o que ainda falta no cadastro de um cliente (o link de "atualizar cadastro" pede só isso)
+const temFoto = c => (c.files || []).some(f => /^Foto do cliente/.test(f.name || ""));
+function faltando(c) {
+  const f = [];
+  if (!temFoto(c)) f.push("foto");
+  if (String(c.name || "").trim().split(/\s+/).length < 2) f.push("nome");
+  if (!cpfOk(c.cpf)) f.push("cpf");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(c.birth || "")) f.push("nasc");
+  if (String(c.phone || "").replace(/\D/g, "").length < 10) f.push("whats");
+  if (!String(c.address || "").trim()) f.push("end");
+  return f;
+}
+const TODOS = ["foto", "nome", "cpf", "nasc", "whats", "end"];
+async function infoConvite(cv) {
+  if (!cv.para) return { atualizar: false, falta: TODOS };
+  const e = await getEstado(cv.usuario);
+  const c = ((e.dados && e.dados.clients) || []).find(x => x.id === cv.para);
+  return c ? { atualizar: true, nome: c.name, falta: faltando(c) } : null;
+}
 async function cadastrarPeloLink(token, b) {
   const t = v => String(v || "").trim();
   const d = {
@@ -110,17 +130,18 @@ async function cadastrarPeloLink(token, b) {
     cep: t(b.cep).replace(/\D/g, ""), endereco: t(b.endereco).slice(0, 160), numero: t(b.numero).slice(0, 20), complemento: t(b.complemento).slice(0, 60),
     bairro: t(b.bairro).slice(0, 80), cidade: t(b.cidade).slice(0, 80), uf: t(b.uf).toUpperCase().slice(0, 2)
   };
-  if (d.nome.split(" ").length < 2) return "Coloque o nome completo";
-  if (!cpfOk(d.cpf)) return "CPF inválido";
   const nasc = /^\d{4}-\d{2}-\d{2}$/.test(d.nascimento) ? new Date(d.nascimento + "T12:00:00Z") : null;
-  if (!nasc || isNaN(nasc) || nasc.getUTCFullYear() < 1900 || nasc > new Date()) return "Data de nascimento inválida";
-  if (d.whatsapp.length < 10 || d.whatsapp.length > 13) return "WhatsApp inválido";
-  if (d.cep.length !== 8) return "CEP inválido";
-  if (!d.endereco || !d.numero || !d.bairro || !d.cidade || d.uf.length !== 2) return "Preencha o endereço completo";
-  if (!b.aceite) return "É preciso aceitar o uso dos dados";
   const foto = Buffer.from(String(b.foto || ""), "base64");
   const jpg = foto[0] === 0xff && foto[1] === 0xd8, png = foto[0] === 0x89 && foto[1] === 0x50;
-  if (foto.length < 3000 || !(jpg || png)) return "Tire a foto para continuar";
+  const checa = {
+    foto: () => (foto.length < 3000 || !(jpg || png)) && "Tire a foto para continuar",
+    nome: () => d.nome.split(" ").length < 2 && "Coloque o nome completo",
+    cpf: () => !cpfOk(d.cpf) && "CPF inválido",
+    nasc: () => (!nasc || isNaN(nasc) || nasc.getUTCFullYear() < 1900 || nasc > new Date()) && "Data de nascimento inválida",
+    whats: () => (d.whatsapp.length < 10 || d.whatsapp.length > 13) && "WhatsApp inválido",
+    end: () => d.cep.length !== 8 ? "CEP inválido" : (!d.endereco || !d.numero || !d.bairro || !d.cidade || d.uf.length !== 2) && "Preencha o endereço completo"
+  };
+  if (!b.aceite) return "É preciso aceitar o uso dos dados";
   const client = await db.connect();
   try {
     await client.query("begin");
@@ -128,22 +149,40 @@ async function cadastrarPeloLink(token, b) {
     const cv = await conviteValido(token, client);
     if (!cv) { await client.query("rollback"); return "Este link já foi usado ou expirou. Peça um novo."; }
     const uid = cv.usuario, { date } = nowBR();
-    const fid = crypto.randomUUID();
-    await client.query("insert into arquivos (id, nome, tipo, tamanho, dados, usuario) values ($1,$2,$3,$4,$5,$6)",
-      [fid, "Foto do cliente." + (jpg ? "jpg" : "png"), jpg ? "image/jpeg" : "image/png", foto.length, foto, uid]);
     const cur = (await client.query("select versao, dados from estado where id=$1 for update", [uid])).rows[0];
     const dados = cur ? cur.dados : BLANK();
-    const id = Date.now().toString(36) + crypto.randomBytes(3).toString("hex");
+    dados.clients = dados.clients || [];
+    // link de atualizar: completa só o que falta no cliente que já existe
+    const alvo = cv.para ? dados.clients.find(c => c.id === cv.para) : null;
+    if (cv.para && !alvo) { await client.query("rollback"); return "Este cadastro não existe mais. Peça um novo link."; }
+    const pede = alvo ? faltando(alvo) : TODOS;
+    for (const k of TODOS) { const e = pede.includes(k) && checa[k](); if (e) { await client.query("rollback"); return e; } }
+    const files = [];
+    if (pede.includes("foto")) {
+      const fid = crypto.randomUUID(), nome = "Foto do cliente." + (jpg ? "jpg" : "png"), mime = jpg ? "image/jpeg" : "image/png";
+      await client.query("insert into arquivos (id, nome, tipo, tamanho, dados, usuario) values ($1,$2,$3,$4,$5,$6)", [fid, nome, mime, foto.length, foto, uid]);
+      files.push({ id: fid, name: nome, mime, at: date });
+    }
     const address = `${d.endereco}, ${d.numero}${d.complemento ? " - " + d.complemento : ""}, ${d.bairro}, ${d.cidade}/${d.uf}, CEP ${d.cep.slice(0, 5)}-${d.cep.slice(5)}`;
-    dados.clients = (dados.clients || []).concat({
-      id, name: d.nome, phone: d.whatsapp, cpf: d.cpf, address, birth: d.nascimento, cep: d.cep, notes: "", createdAt: date, viaLink: true,
-      files: [{ id: fid, name: "Foto do cliente." + (jpg ? "jpg" : "png"), mime: jpg ? "image/jpeg" : "image/png", at: date }]
-    });
+    let id;
+    if (alvo) {
+      id = alvo.id;
+      if (pede.includes("nome")) alvo.name = d.nome;
+      if (pede.includes("cpf")) alvo.cpf = d.cpf;
+      if (pede.includes("nasc")) alvo.birth = d.nascimento;
+      if (pede.includes("whats")) alvo.phone = d.whatsapp;
+      if (pede.includes("end")) { alvo.address = address; alvo.cep = d.cep; }
+      alvo.files = (alvo.files || []).concat(files);
+      alvo.linkEm = new Date().toISOString(); // o app usa para não sobrescrever com a cópia antiga
+    } else {
+      id = Date.now().toString(36) + crypto.randomBytes(3).toString("hex");
+      dados.clients.push({ id, name: d.nome, phone: d.whatsapp, cpf: d.cpf, address, birth: d.nascimento, cep: d.cep, notes: "", createdAt: date, viaLink: true, files });
+    }
     const nv = (cur ? cur.versao : 0) + 1;
     await client.query("insert into estado (id, versao, dados, atualizado) values ($3,$1,$2,now()) on conflict (id) do update set versao=$1, dados=$2, atualizado=now()", [nv, dados, uid]);
     await client.query("update convites set usado=now(), cliente=$2 where token=$1", [token, id]);
     await client.query("commit");
-    backup(uid, dados, "cadastro pelo link", true).catch(() => {});
+    backup(uid, dados, alvo ? "cadastro atualizado pelo link" : "cadastro pelo link", true).catch(() => {});
     return null;
   } catch (e) { await client.query("rollback").catch(() => {}); throw e; } finally { client.release(); }
 }
@@ -383,8 +422,8 @@ async function api(req, res, url) {
   let mc;
   if ((mc = p.match(/^\/api\/convite\/([\w-]{16,64})$/))) {
     if (req.method === "GET") {
-      const cv = await conviteValido(mc[1]);
-      return send(res, 200, cv ? { ok: true, valido: true, de: cv.de } : { ok: true, valido: false });
+      const cv = await conviteValido(mc[1]), info = cv && await infoConvite(cv);
+      return send(res, 200, info ? Object.assign({ ok: true, valido: true, de: cv.de }, info) : { ok: true, valido: false });
     }
     if (req.method === "POST") {
       const erro = await cadastrarPeloLink(mc[1], await readBody(req, MAX_FILE * 1.4));
@@ -494,7 +533,8 @@ async function api(req, res, url) {
   }
   if (p === "/api/convites" && req.method === "POST") {
     const token = crypto.randomBytes(18).toString("base64url");
-    await db.query("insert into convites (token, usuario) values ($1,$2)", [token, uid]);
+    const para = String((await readBody(req, 1e4)).cliente || "").slice(0, 64) || null; // com cliente: link para atualizar o cadastro dele
+    await db.query("insert into convites (token, usuario, para) values ($1,$2,$3)", [token, uid, para]);
     return send(res, 200, { ok: true, token, dias: CONVITE_DIAS });
   }
 

@@ -92,29 +92,33 @@ function cpfOk(c){c=c.replace(/\D/g,"");if(c.length!==11||/^(\d)\1+$/.test(c))re
   const dv=n=>{let s=0;for(let i=0;i<n;i++)s+=Number(c[i])*(n+1-i);const r=(s*10)%11;return r===10?0:r};return dv(9)===Number(c[9])&&dv(10)===Number(c[10])}
 const mask=(v,p)=>{v=v.replace(/\D/g,"");let o="",i=0;for(const ch of p){if(i>=v.length)break;if(ch==="9")o+=v[i++];else o+=ch}return o};
 const fmtNasc=s=>s?s.split("-").reverse().join("/"):"";
+/* "25/03/1990" -> "1990-03-25" (formato que o servidor espera); vazio se incompleto */
+const isoNasc=v=>{const m=v.replace(/\D/g,"").match(/^(\d{2})(\d{2})(\d{4})$/);return m?m[3]+"-"+m[2]+"-"+m[1]:""};
+const nascOk=s=>{if(!/^\d{4}-\d{2}-\d{2}$/.test(s))return false;const [a,m,d]=s.split("-").map(Number),x=new Date(Date.UTC(a,m-1,d));
+  return x.getUTCFullYear()===a&&x.getUTCMonth()===m-1&&x.getUTCDate()===d&&a>=1900&&x<=new Date()};
 
-let de="",at=0,fotoUrl="";
+let de="",at=0,fotoUrl="",atualizar=false,falta=[];
 const D={foto:"",nome:"",cpf:"",nascimento:"",whatsapp:"",cep:"",endereco:"",numero:"",complemento:"",bairro:"",cidade:"",uf:""};
 
 /* cada etapa: título, o que mostra e como confere antes de seguir */
-const STEPS=[
-  {t:"Sua foto",sub:"Tire uma foto do seu rosto, de frente e com boa luz.",
+const ALL=[
+  {k:"foto",t:"Sua foto",sub:"Tire uma foto do seu rosto, de frente e com boa luz.",
    html:()=>'<div class="photo"><div class="ph'+(fotoUrl?' ok':'')+'" id="ph">'+(fotoUrl?'<img alt="Sua foto" src="'+fotoUrl+'">':cam)+'</div>'+
      '<label class="btn sec" style="width:auto;padding-inline:24px"><input type="file" id="cam" accept="image/*" capture="user" hidden><span>'+(fotoUrl?'Tirar outra foto':'Tirar foto')+'</span></label></div>',
    ok:()=>D.foto?null:"Tire a sua foto para continuar."},
-  {t:"Qual é o seu nome completo?",sub:"Como está no seu documento.",
+  {k:"nome",t:"Qual é o seu nome completo?",sub:"Como está no seu documento.",
    html:()=>'<input class="big" id="nome" autocomplete="name" autocapitalize="words" value="'+esc(D.nome)+'">',
    read:()=>{D.nome=$("#nome").value.trim().replace(/\s+/g," ")},ok:()=>D.nome.split(" ").length>=2?null:"Coloque o nome completo, com sobrenome."},
-  {t:"Qual é o seu CPF?",sub:"Só os números.",
+  {k:"cpf",t:"Qual é o seu CPF?",sub:"Só os números.",
    html:()=>'<input class="big" id="cpf" inputmode="numeric" placeholder="000.000.000-00" maxlength="14" value="'+esc(D.cpf)+'">',
    read:()=>{D.cpf=$("#cpf").value},ok:()=>cpfOk(D.cpf)?null:"CPF inválido. Confira os números."},
-  {t:"Qual é a sua data de nascimento?",sub:"",
-   html:()=>'<input class="big" id="nasc" type="date" max="'+new Date().toISOString().slice(0,10)+'" value="'+esc(D.nascimento)+'">',
-   read:()=>{D.nascimento=$("#nasc").value},ok:()=>/^\d{4}-\d{2}-\d{2}$/.test(D.nascimento)&&D.nascimento>"1900"?null:"Coloque a data de nascimento."},
-  {t:"Qual é o seu WhatsApp?",sub:"Com DDD.",
+  {k:"nasc",t:"Qual é a sua data de nascimento?",sub:"Só os números: dia, mês e ano.",
+   html:()=>'<input class="big" id="nasc" type="text" inputmode="numeric" autocomplete="bday" placeholder="DD/MM/AAAA" maxlength="10" value="'+esc(fmtNasc(D.nascimento))+'">',
+   read:()=>{D.nascimento=isoNasc($("#nasc").value)},ok:()=>nascOk(D.nascimento)?null:"Data inválida. Escreva assim: 25/03/1990."},
+  {k:"whats",t:"Qual é o seu WhatsApp?",sub:"Com DDD.",
    html:()=>'<input class="big" id="whats" type="tel" inputmode="tel" autocomplete="tel" placeholder="(11) 98765-4321" maxlength="15" value="'+esc(D.whatsapp)+'">',
    read:()=>{D.whatsapp=$("#whats").value},ok:()=>D.whatsapp.replace(/\D/g,"").length>=10?null:"Coloque o WhatsApp com DDD."},
-  {t:"Qual é o seu endereço?",sub:"Digite o CEP que a rua aparece sozinha.",
+  {k:"end",t:"Qual é o seu endereço?",sub:"Digite o CEP que a rua aparece sozinha.",
    html:()=>'<div class="f"><label for="cep">CEP</label><input class="big" id="cep" inputmode="numeric" autocomplete="postal-code" placeholder="00000-000" maxlength="9" value="'+esc(D.cep)+'"><span class="hint" id="cepmsg"></span></div>'+
      '<div class="f"><label for="end">Rua</label><input id="end" autocomplete="address-line1" value="'+esc(D.endereco)+'"></div>'+
      '<div class="three" style="grid-template-columns:1fr 2fr"><div class="f"><label for="num">Número</label><input id="num" inputmode="numeric" value="'+esc(D.numero)+'"></div><div class="f"><label for="comp">Complemento</label><input id="comp" placeholder="Apto, bloco" value="'+esc(D.complemento)+'"></div></div>'+
@@ -125,28 +129,32 @@ const STEPS=[
      for(const [k,id,n] of [["endereco","end","a rua"],["numero","num","o número"],["bairro","bairro","o bairro"],["cidade","cidade","a cidade"]])if(!D[k])return ["Coloque "+n+".",id];
      return D.uf.length===2?null:["Coloque a UF (ex.: SP).","uf"]}},
   {t:"Confira e envie",sub:"Se algo estiver errado, toque em Voltar.",
-   html:()=>'<div style="display:flex;gap:14px;align-items:center"><img class="rv-ph" alt="Sua foto" src="'+fotoUrl+'"><b style="font-size:18px">'+esc(D.nome)+'</b></div>'+
-     '<div class="review"><span>CPF</span><b>'+esc(D.cpf)+'</b><span>Nascimento</span><b>'+esc(fmtNasc(D.nascimento))+'</b><span>WhatsApp</span><b>'+esc(D.whatsapp)+'</b>'+
-     '<span>Endereço</span><b>'+esc(D.endereco+", "+D.numero+(D.complemento?" - "+D.complemento:"")+", "+D.bairro+", "+D.cidade+"/"+D.uf+", CEP "+D.cep)+'</b></div>'+
-     '<label class="check"><input type="checkbox" id="aceite"><span>Autorizo o uso dos meus dados e da minha foto para este cadastro e para contato sobre pagamentos.</span></label>',
+   html:()=>{const p=k=>falta.includes(k),row=(l,v)=>'<span>'+l+'</span><b>'+esc(v)+'</b>';
+     const rows=(p("cpf")?row("CPF",D.cpf):"")+(p("nasc")?row("Nascimento",fmtNasc(D.nascimento)):"")+(p("whats")?row("WhatsApp",D.whatsapp):"")+
+       (p("end")?row("Endereço",D.endereco+", "+D.numero+(D.complemento?" - "+D.complemento:"")+", "+D.bairro+", "+D.cidade+"/"+D.uf+", CEP "+D.cep):"");
+     return '<div style="display:flex;gap:14px;align-items:center">'+(p("foto")?'<img class="rv-ph" alt="Sua foto" src="'+fotoUrl+'">':'')+'<b style="font-size:18px">'+esc(D.nome)+'</b></div>'+
+     (rows?'<div class="review">'+rows+'</div>':(falta.length?'':'<p class="hint" style="font-size:15px;margin:0">Seu cadastro já está completo. É só confirmar.</p>'))+
+     '<label class="check"><input type="checkbox" id="aceite"><span>Autorizo o uso dos meus dados e da minha foto para este cadastro e para contato sobre pagamentos.</span></label>'},
    ok:()=>$("#aceite").checked?null:["Marque a autorização para enviar.","aceite"]}
 ];
+let STEPS=ALL;
 
 function show(){
   const s=STEPS[at],last=at===STEPS.length-1;
-  $("#box").innerHTML=(at===0?'<p class="hint" style="font-size:15px;margin:0 0 12px">'+(de&&de!=="Administrador"?esc(de)+' pediu o seu cadastro. ':'')+'São só '+STEPS.length+' passos rápidos.</p>':'')+
+  $("#box").innerHTML=(at===0?'<p class="hint" style="font-size:15px;margin:0 0 12px">'+(atualizar?(de&&de!=="Administrador"?esc(de)+' pediu para você completar o seu cadastro. ':'Complete o seu cadastro. ')+(STEPS.length>1?'Faltam só '+STEPS.length+' passos.':''):(de&&de!=="Administrador"?esc(de)+' pediu o seu cadastro. ':'')+'São só '+STEPS.length+' passos rápidos.')+'</p>':'')+
    '<div class="prog"><div class="bar"><i style="width:'+Math.round((at+1)/STEPS.length*100)+'%"></i></div><span>Passo '+(at+1)+' de '+STEPS.length+'</span></div>'+
    '<form class="card step" id="f" novalidate><div><h1>'+s.t+'</h1>'+(s.sub?'<p class="sub">'+s.sub+'</p>':'')+'</div>'+s.html()+
    '<div class="err" id="err" hidden></div><div class="nav">'+(at?'<button type="button" class="btn back" id="back">Voltar</button>':'')+
    '<button class="btn pri" id="go" type="submit">'+(last?'Enviar cadastro':'Continuar')+'</button></div></form>';
   wire();
-  const first=$("#f input:not([type=file]):not([type=checkbox])");if(first&&!("ontouchstart" in window&&at===3))first.focus();
+  const first=$("#f input:not([type=file]):not([type=checkbox])");if(first)first.focus();
 }
 function wire(){
   $("#f").addEventListener("submit",next);
   if($("#back"))$("#back").addEventListener("click",()=>{const s=STEPS[at];if(s.read)s.read();at--;show()});
   if($("#cam"))$("#cam").addEventListener("change",e=>{const f=e.target.files[0];if(f)tirarFoto(f)});
   if($("#cpf"))$("#cpf").addEventListener("input",e=>e.target.value=mask(e.target.value,"999.999.999-99"));
+  if($("#nasc"))$("#nasc").addEventListener("input",e=>e.target.value=mask(e.target.value,"99/99/9999"));
   if($("#whats"))$("#whats").addEventListener("input",e=>{const d=e.target.value.replace(/\D/g,"");e.target.value=mask(d,d.length>10?"(99) 99999-9999":"(99) 9999-9999")});
   if($("#cep"))$("#cep").addEventListener("input",e=>{e.target.value=mask(e.target.value,"99999-999");if(e.target.value.length===9)buscaCep(e.target.value)});
 }
@@ -179,13 +187,16 @@ async function enviar(){
     const r=await fetch("/api/convite/"+encodeURIComponent(token),{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(Object.assign({},D,{aceite:true}))});
     const j=await r.json().catch(()=>({}));
     if(!j.ok)throw new Error(j.erro||"Não consegui enviar. Tente de novo.");
-    $("#box").innerHTML='<div class="card done"><div class="big"><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div><h1 style="font-size:24px">Cadastro enviado!</h1><p class="hint" style="font-size:15px">Obrigado. Seus dados chegaram certinho. Pode fechar esta página.</p></div>';
+    $("#box").innerHTML='<div class="card done"><div class="big"><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div><h1 style="font-size:24px">'+(atualizar?'Cadastro atualizado!':'Cadastro enviado!')+'</h1><p class="hint" style="font-size:15px">Obrigado. Seus dados chegaram certinho. Pode fechar esta página.</p></div>';
     scrollTo(0,0);
   }catch(e){go.disabled=false;go.textContent="Enviar cadastro";erro(e.message)}
 }
 
 fetch("/api/convite/"+encodeURIComponent(token)).then(r=>r.json()).then(j=>{
-  if(j.valido){de=j.de||"";show()}
+  if(j.valido){de=j.de||"";atualizar=!!j.atualizar;falta=j.falta||ALL.map(s=>s.k).filter(Boolean);
+    if(atualizar){D.nome=j.nome||"";STEPS=ALL.filter(s=>!s.k||falta.includes(s.k));
+      document.title="CashDay · Atualizar cadastro"}
+    show()}
   else $("#box").innerHTML='<div class="card done"><h1 style="font-size:22px">Link inválido</h1><p class="hint" style="font-size:15px">Este link já foi usado ou passou do prazo de 7 dias. Peça um novo link para quem te enviou.</p></div>';
 }).catch(()=>{$("#box").innerHTML='<div class="card"><div class="err">Sem conexão. Verifique a internet e abra o link de novo.</div></div>'});
 </script>
