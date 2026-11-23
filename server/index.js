@@ -49,6 +49,7 @@ async function migrate() {
     create table if not exists consultas (id serial primary key, em timestamptz not null default now(), dia text not null, usuario int not null, cpf text not null, achou int not null default 0);
     create table if not exists convites (token text primary key, usuario int not null, criado timestamptz not null default now(), usado timestamptz, cliente text);
     alter table convites add column if not exists para text;
+    alter table usuarios add column if not exists sessao int not null default 0;
   `);
   // o administrador vem das variáveis do Railway (ADMIN_USUARIO e APP_SENHA)
   // nome do administrador para a saudação: variável ADMIN_NOME
@@ -58,21 +59,67 @@ async function migrate() {
   await db.query("select setval(pg_get_serial_sequence('usuarios','id'), greatest((select max(id) from usuarios), 1))");
 }
 
-/* ---------- login: usuário e senha; token assinado com APP_SENHA ---------- */
+/* ---------- login: usuário e senha; token assinado com APP_SENHA ----------
+   O token leva o id, um pedaço da senha (trocar a senha derruba os logins antigos),
+   o número da sessão ("sair dos outros aparelhos" soma 1) e quando foi feito.
+   Vale LOGIN_DIAS e é renovado sozinho (cabeçalho X-Token) enquanto a pessoa usa. */
+const LOGIN_DIAS = 30, RENOVA_MS = 24 * 3600e3;
 const secret = () => crypto.createHash("sha256").update("cashday:" + SENHA).digest();
 const sign = s => crypto.createHmac("sha256", secret()).update(s).digest("base64url");
-// o token leva o id do usuário e um pedaço da senha dele: trocar a senha derruba os logins antigos
 const marca = u => crypto.createHash("sha256").update(String(u.senha || "")).digest("base64url").slice(0, 8);
-const makeToken = u => { const p = "u2." + u.id + "." + marca(u) + "." + Date.now(); return p + "." + sign(p); };
+const makeToken = u => { const p = "u3." + u.id + "." + marca(u) + "." + (u.sessao || 0) + "." + Date.now(); return p + "." + sign(p); };
 async function tokenUser(t) {
   if (!SENHA || !t) return null;
   const i = t.lastIndexOf("."); if (i < 0) return null;
   const a = Buffer.from(sign(t.slice(0, i))), b = Buffer.from(t.slice(i + 1));
   if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
-  const [v, id, mk] = t.slice(0, i).split(".");
-  if (v !== "u2") return null;
+  const parts = t.slice(0, i).split(".");
+  // login do formato antigo (u2, sem prazo): vale só até a primeira vez que é usado, quando vira um u3
+  const antigo = parts[0] === "u2", [v, id, mk] = parts, ss = antigo ? "0" : parts[3], ts = antigo ? Date.now() : parts[4];
+  if (v !== "u3" && !(antigo && Date.now() < Date.parse("2027-01-31T00:00:00Z"))) return null; // até lá todo mundo já abriu o app
+  const feito = Number(ts), idade = Date.now() - feito;
+  if (!(idade >= -60e3 && idade < LOGIN_DIAS * 86400e3)) return null;
   const u = (await db.query("select * from usuarios where id=$1", [Number(id)])).rows[0];
-  return u && u.ativo && marca(u) === mk ? u : null;
+  if (!(u && u.ativo && marca(u) === mk && String(u.sessao || 0) === ss)) return null;
+  u.renovar = antigo || idade > RENOVA_MS;
+  return u;
+}
+
+/* ---------- tentativas de login: 5 erros seguidos no mesmo usuário (ou 30 no mesmo
+   IP) bloqueiam por 15 minutos. Fica na memória: reiniciar o servidor zera. */
+const TRAVA_MIN = 15, MAX_USUARIO = 5, MAX_IP = 30;
+const falhas = new Map(); // chave -> { n, ult, ate }
+const ipDe = req => String(req.headers["x-real-ip"] || "").trim() || null; // o Railway põe o IP de quem acessa aqui
+function travado(chaves) {
+  let ms = 0;
+  for (const k of chaves) { const f = falhas.get(k); if (f && f.ate > Date.now()) ms = Math.max(ms, f.ate - Date.now()); }
+  return ms;
+}
+function falhou(chaves) {
+  const agora = Date.now();
+  for (const k of chaves) {
+    let f = falhas.get(k);
+    if (!f || agora - f.ult > TRAVA_MIN * 60e3) f = { n: 0, ult: agora, ate: 0 };
+    f.n++; f.ult = agora;
+    if (f.n >= (k.startsWith("ip:") ? MAX_IP : MAX_USUARIO)) { f.ate = agora + TRAVA_MIN * 60e3; f.n = 0; }
+    falhas.set(k, f);
+  }
+}
+setInterval(() => { const t = Date.now() - TRAVA_MIN * 60e3; for (const [k, f] of falhas) if (f.ult < t && f.ate < Date.now()) falhas.delete(k); }, 10 * 60e3).unref();
+
+/* ---------- regras de senha ---------- */
+const COMUNS = new Set(("12345678 123456789 1234567890 87654321 11111111 00000000 12341234 11223344 12121212 " +
+  "senha123 senha1234 senha12345 mudar123 teste123 abc12345 abcd1234 a1234567 qwerty123 password1 q1w2e3r4 1q2w3e4r " +
+  "cashday1 cashday123 brasil123 brasil2024 brasil2025 brasil2026 flamengo1 corinthians1 palmeiras1 dinheiro1 deus1234 jesus123 " +
+  "amor1234 iloveyou1 admin123 admin1234 qwer1234 asdf1234 zxcv1234").split(" "));
+function senhaFraca(senha, login, nome) {
+  const s = String(senha || ""), l = s.toLowerCase();
+  if (s.length < 8) return "A senha precisa ter pelo menos 8 caracteres";
+  if (s.length > 100) return "A senha pode ter no máximo 100 caracteres";
+  if (!/[a-zA-Z]/.test(s) || !/\d/.test(s)) return "A senha precisa ter letras e números";
+  if (COMUNS.has(l) || /^(.)\1+$/.test(s)) return "Essa senha é muito comum. Escolha outra";
+  for (const x of [login, ...String(nome || "").toLowerCase().split(/\s+/)]) if (x && x.length >= 3 && l.includes(String(x).toLowerCase())) return "A senha não pode ter o nome ou o usuário da pessoa";
+  return null;
 }
 const igual = (x, y) => {
   const a = crypto.createHash("sha256").update(String(x || "")).digest(), b = crypto.createHash("sha256").update(String(y || "")).digest();
@@ -404,7 +451,7 @@ async function consultarCPF(eu, cpf) {
 }
 
 /* ---------- http ---------- */
-const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS", "Access-Control-Allow-Headers": "Content-Type,Authorization" };
+const CORS = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS", "Access-Control-Allow-Headers": "Content-Type,Authorization", "Access-Control-Expose-Headers": "X-Token" };
 const send = (res, code, obj, headers) => { res.writeHead(code, { ...CORS, "Content-Type": "application/json; charset=utf-8", ...headers }); res.end(JSON.stringify(obj)); };
 async function readBody(req, limit) {
   const chunks = []; let n = 0;
@@ -433,8 +480,17 @@ async function api(req, res, url) {
   if (p === "/api/login" && req.method === "POST") {
     const { usuario, senha } = await readBody(req, 1e4);
     if (!SENHA) return send(res, 500, { ok: false, erro: "Falta configurar APP_SENHA no Railway" });
+    const quem = String(usuario || "").trim().toLowerCase() || ADMIN, ip = ipDe(req);
+    const chaves = ["u:" + quem.slice(0, 60)].concat(ip ? ["ip:" + ip] : []);
+    const espera = travado(chaves);
+    if (espera) { const m = Math.ceil(espera / 60e3); return send(res, 429, { ok: false, erro: "Muitas tentativas erradas. Tente de novo em " + m + (m > 1 ? " minutos" : " minuto") + "." }); }
     const u = await login(usuario, senha);
-    if (!u) { await new Promise(r => setTimeout(r, 800)); return send(res, 401, { ok: false, erro: "Usuário ou senha errados" }); }
+    if (!u) {
+      falhou(chaves);
+      await new Promise(r => setTimeout(r, 800));
+      return send(res, 401, { ok: false, erro: travado(chaves) ? "Usuário ou senha errados. Por segurança, o login ficou travado por " + TRAVA_MIN + " minutos." : "Usuário ou senha errados" });
+    }
+    falhas.delete(chaves[0]);
     await db.query("update usuarios set ultimo_acesso=now() where id=$1", [u.id]);
     return send(res, 200, { ok: true, token: makeToken(u), usuario: publico(u) });
   }
@@ -442,6 +498,13 @@ async function api(req, res, url) {
   const eu = await tokenUser(auth);
   if (!eu) return send(res, 401, { ok: false, erro: "Entre de novo com seu usuário e senha" });
   const uid = eu.id;
+  if (eu.renovar) res.setHeader("X-Token", makeToken(eu)); // quem usa todo dia não precisa entrar de novo
+
+  // sai de todos os outros aparelhos; este continua com um login novo
+  if (p === "/api/sair-outros" && req.method === "POST") {
+    const ss = (await db.query("update usuarios set sessao=sessao+1 where id=$1 returning sessao", [uid])).rows[0].sessao;
+    return send(res, 200, { ok: true, token: makeToken({ ...eu, sessao: ss }) });
+  }
 
   if (p === "/api/eu") {
     db.query("update usuarios set ultimo_acesso=now() where id=$1", [uid]).catch(() => {});
@@ -452,7 +515,8 @@ async function api(req, res, url) {
     const b = await readBody(req, 1e4);
     if (eu.id === ADMIN_ID) return send(res, 400, { ok: false, erro: "A senha do administrador fica na variável APP_SENHA do Railway" });
     if (!confere(b.atual, eu.senha)) { await new Promise(r => setTimeout(r, 800)); return send(res, 400, { ok: false, erro: "A senha atual está errada" }); }
-    if (String(b.nova || "").length < 6) return send(res, 400, { ok: false, erro: "A nova senha precisa ter pelo menos 6 caracteres" });
+    const fraca = senhaFraca(b.nova, eu.login, eu.nome);
+    if (fraca) return send(res, 400, { ok: false, erro: fraca });
     const senha = hashSenha(b.nova);
     await db.query("update usuarios set senha=$2 where id=$1", [uid, senha]);
     return send(res, 200, { ok: true, token: makeToken({ ...eu, senha }) });
@@ -473,7 +537,8 @@ async function api(req, res, url) {
       if (!nome) return send(res, 400, { ok: false, erro: "Coloque o nome" });
       if (!/^[a-z0-9._-]{3,30}$/.test(login)) return send(res, 400, { ok: false, erro: "O usuário precisa ter de 3 a 30 letras ou números, sem espaço" });
       if (login === ADMIN) return send(res, 400, { ok: false, erro: "Esse usuário é do administrador" });
-      if (String(b.senha || "").length < 6) return send(res, 400, { ok: false, erro: "A senha precisa ter pelo menos 6 caracteres" });
+      const fraca = senhaFraca(b.senha, login, nome);
+      if (fraca) return send(res, 400, { ok: false, erro: fraca });
       try {
         const r = await db.query("insert into usuarios (login, nome, senha) values ($1,$2,$3) returning id", [login, nome, hashSenha(b.senha)]);
         return send(res, 200, { ok: true, id: r.rows[0].id });
@@ -483,11 +548,15 @@ async function api(req, res, url) {
     if (mu && req.method === "PUT") {
       const id = Number(mu[1]), b = await readBody(req, 1e4);
       if (id === ADMIN_ID) return send(res, 400, { ok: false, erro: "A senha do administrador fica na variável APP_SENHA do Railway" });
+      const alvo = (await db.query("select login, nome from usuarios where id=$1", [id])).rows[0];
+      if (!alvo) return send(res, 404, { ok: false, erro: "Usuário não encontrado" });
       if (b.senha !== undefined) {
-        if (String(b.senha).length < 6) return send(res, 400, { ok: false, erro: "A senha precisa ter pelo menos 6 caracteres" });
+        const fraca = senhaFraca(b.senha, alvo.login, alvo.nome);
+        if (fraca) return send(res, 400, { ok: false, erro: fraca });
         await db.query("update usuarios set senha=$2 where id=$1", [id, hashSenha(b.senha)]);
       }
       if (b.ativo !== undefined) await db.query("update usuarios set ativo=$2 where id=$1", [id, !!b.ativo]);
+      if (b.desconectar) await db.query("update usuarios set sessao=sessao+1 where id=$1", [id]); // sai de todos os aparelhos
       if (b.nome) await db.query("update usuarios set nome=$2 where id=$1", [id, String(b.nome).trim().slice(0, 80)]);
       return send(res, 200, { ok: true });
     }

@@ -356,6 +356,7 @@ async function cloudFetch(path,opt){
   opt=opt||{};
   const r=await fetch(C.url.replace(/\/+$/,"")+path,{method:opt.method||"GET",headers:{"Content-Type":"application/json",...(C.token?{Authorization:"Bearer "+C.token}:{})},body:opt.body?JSON.stringify(opt.body):undefined});
   let j={};try{j=await r.json()}catch(e){}
+  const nt=r.headers.get("X-Token");if(nt&&C.token){C.token=nt;saveC()} // login renovado pelo servidor
   if(r.status===401&&C.token){C.token="";saveC();cloud={state:"err",err:"Entre de novo com a senha",at:null};render()}
   if(!r.ok&&r.status!==409)throw new Error(j.erro||("O servidor respondeu "+r.status));
   return Object.assign(j,{status:r.status});
@@ -417,6 +418,7 @@ function cloudCard(){
   if(SERVER)return '<div class="card"><h3>Sua conta</h3>'+(C.user?'<div class="num" style="font-size:14px">Você entrou como <b>'+esc(C.user.nome)+'</b> ('+esc(C.user.login)+')</div>':'')+
    '<div class="note">'+(cloud.state==="err"?'<span style="color:var(--late)">Sem conexão com o banco de dados.</span> Tento salvar de novo sozinho.':'Tudo é salvo direto no banco de dados, na hora. Um backup automático é feito a cada hora.')+'</div>'+
    '<div class="acts">'+(C.user&&!C.user.admin?'<button class="btn sec2" data-act="myPw">Trocar senha</button>':'')+'<button class="btn ghost" data-act="cloudBackups">Backups</button></div>'+
+   (C.token?'<button class="btn ghost block" data-act="sairOutros">Sair dos outros aparelhos</button>':'')+
    (C.user&&C.user.admin?'<span class="hint" style="font-size:12px;color:var(--muted)">A senha do administrador fica na variável APP_SENHA do Railway.</span>':'')+
    '<button class="btn danger block" data-act="cloudOut">Sair da conta</button></div>';
   const when=cloud.at?cloud.at.toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}):"-";
@@ -497,14 +499,15 @@ function admList(){
   const list=(USERS||[]).filter(u=>!u.admin);
   sheet('<h3>Usuários</h3>'+(list.length?'<div class="list">'+list.map(u=>'<div class="card" style="margin:0"><div><b>'+esc(u.nome)+'</b>'+(u.ativo?'':' <span style="color:var(--late)">(bloqueado)</span>')+'</div>'+
     '<div class="num" style="font-size:13px;color:var(--muted)">Usuário: '+esc(u.login)+' · '+u.clientes+' clientes · '+u.emprestimos+' empréstimos<br>Último acesso: '+esc(quando(u.ultimo_acesso))+'</div>'+
-    '<div class="acts"><button class="btn sec2" data-act="admPw" data-u="'+u.id+'">Trocar senha</button><button class="btn ghost" data-act="admBlock" data-u="'+u.id+'">'+(u.ativo?'Bloquear':'Desbloquear')+'</button></div></div>').join("")+'</div>'
+    '<div class="acts"><button class="btn sec2" data-act="admPw" data-u="'+u.id+'">Trocar senha</button><button class="btn ghost" data-act="admBlock" data-u="'+u.id+'">'+(u.ativo?'Bloquear':'Desbloquear')+'</button></div>'+
+    '<button class="btn ghost block" data-act="admOut" data-u="'+u.id+'">Desconectar de todos os aparelhos</button></div>').join("")+'</div>'
     :'<p class="note">Nenhum usuário ainda.</p>')+'<button class="btn pri block" data-act="admNew">Cadastrar usuário</button>');
 }
 function admNew(){
   sheet('<h3>Cadastrar usuário</h3><p class="hint" style="font-size:13px;color:var(--muted)">A pessoa entra no CashDay só com o usuário e a senha. Cada um vê apenas os próprios clientes.</p>'+
    '<div class="f"><label for="u-nome">Nome</label><input id="u-nome" autocomplete="off"></div>'+
    '<div class="f"><label for="u-login">Usuário (para entrar)</label><input id="u-login" autocapitalize="off" autocorrect="off" autocomplete="off" placeholder="ex.: joao"></div>'+
-   '<div class="f"><label for="u-pw">Senha (mínimo 6)</label><input id="u-pw" type="text" autocapitalize="off" autocorrect="off" autocomplete="new-password"></div>'+
+   '<div class="f"><label for="u-pw">Senha (mínimo 8, com letras e números)</label><input id="u-pw" type="text" autocapitalize="off" autocorrect="off" autocomplete="new-password"></div>'+
    '<button class="btn pri block" data-act="admSave">Cadastrar</button>');
 }
 function envCard(){
@@ -1469,17 +1472,22 @@ document.addEventListener("click",e=>{
     if(!body.nome||!body.login||!body.senha){toast("Preencha nome, usuário e senha");return}
     cloudFetch("/api/usuarios",{method:"POST",body}).then(j=>{if(!j.ok)throw new Error(j.erro);closeSheet();toast("Usuário "+body.login+" cadastrado");loadUsers()},e=>toast(e.message))}
   else if(a==="admPw"){const u=(USERS||[]).find(x=>x.id==b.dataset.u);if(!u)return;
-    sheet('<h3>Nova senha para '+esc(u.nome)+'</h3><div class="f"><label for="u-npw">Nova senha (mínimo 6)</label><input id="u-npw" type="text" autocapitalize="off" autocorrect="off" autocomplete="new-password"></div><button class="btn pri block" data-act="admPwSave" data-u="'+u.id+'">Salvar senha</button>')}
+    sheet('<h3>Nova senha para '+esc(u.nome)+'</h3><div class="f"><label for="u-npw">Nova senha (mínimo 8, com letras e números)</label><input id="u-npw" type="text" autocapitalize="off" autocorrect="off" autocomplete="new-password"></div><button class="btn pri block" data-act="admPwSave" data-u="'+u.id+'">Salvar senha</button>')}
   else if(a==="myPw"){sheet('<h3>Trocar minha senha</h3>'+
     '<div class="f"><label for="my-at">Senha atual</label><input id="my-at" type="password" autocomplete="current-password"></div>'+
-    '<div class="f"><label for="my-nv">Nova senha (mínimo 6)</label><input id="my-nv" type="password" autocomplete="new-password"></div>'+
+    '<div class="f"><label for="my-nv">Nova senha (mínimo 8, com letras e números)</label><input id="my-nv" type="password" autocomplete="new-password"></div>'+
     '<div class="f"><label for="my-cf">Repita a nova senha</label><input id="my-cf" type="password" autocomplete="new-password"></div>'+
     '<span class="hint" style="font-size:13px;color:var(--muted)">Nos outros aparelhos você vai precisar entrar de novo com a senha nova.</span>'+
     '<button class="btn pri block" data-act="myPwSave">Salvar nova senha</button>')}
   else if(a==="myPwSave"){const at=$("#my-at").value,nv=$("#my-nv").value;
-    if(!at||!nv){toast("Preencha a senha atual e a nova");return}if(nv.length<6){toast("A nova senha precisa ter pelo menos 6 caracteres");return}if(nv!==$("#my-cf").value){toast("As duas senhas novas não são iguais");return}
+    if(!at||!nv){toast("Preencha a senha atual e a nova");return}if(nv.length<8){toast("A nova senha precisa ter pelo menos 8 caracteres");return}if(nv!==$("#my-cf").value){toast("As duas senhas novas não são iguais");return}
     cloudFetch("/api/senha",{method:"POST",body:{atual:at,nova:nv}}).then(j=>{if(!j.ok)throw new Error(j.erro);C.token=j.token;saveC();closeSheet();toast("Senha trocada")},e=>toast(e.message))}
   else if(a==="admPwSave"){cloudFetch("/api/usuarios/"+b.dataset.u,{method:"PUT",body:{senha:$("#u-npw").value}}).then(j=>{if(!j.ok)throw new Error(j.erro);closeSheet();toast("Senha trocada. Passe a nova senha para a pessoa.")},e=>toast(e.message))}
+  else if(a==="sairOutros"){confirmSheet("Sair dos outros aparelhos?","Todos os outros celulares e computadores onde você entrou vão pedir o usuário e a senha de novo. Este aparelho continua conectado.","Sair dos outros",()=>{
+    cloudFetch("/api/sair-outros",{method:"POST",body:{}}).then(j=>{if(!j.ok)throw new Error(j.erro);C.token=j.token;saveC();toast("Pronto. Só este aparelho continua conectado.")},e=>toast(e.message))})}
+  else if(a==="admOut"){const u=(USERS||[]).find(x=>x.id==b.dataset.u);if(!u)return;
+    confirmSheet("Desconectar "+u.nome+"?","A pessoa sai de todos os aparelhos e precisa entrar de novo com o usuário e a senha. Use se ela perdeu o celular.","Desconectar",()=>{
+    cloudFetch("/api/usuarios/"+u.id,{method:"PUT",body:{desconectar:true}}).then(j=>{if(!j.ok)throw new Error(j.erro);toast(u.nome+" foi desconectado de todos os aparelhos")},e=>toast(e.message))})}
   else if(a==="admBlock"){const u=(USERS||[]).find(x=>x.id==b.dataset.u);if(!u)return;
     cloudFetch("/api/usuarios/"+u.id,{method:"PUT",body:{ativo:!u.ativo}}).then(j=>{if(!j.ok)throw new Error(j.erro);toast(u.ativo?u.nome+" bloqueado":u.nome+" desbloqueado");return loadUsers()}).then(admList,e=>toast(e.message))}
   else if(a==="consulta"){consultaSheet(b.dataset.cpf||"")}
