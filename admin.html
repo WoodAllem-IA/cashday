@@ -177,6 +177,7 @@ async function api(path,opt){
   opt=opt||{};
   const r=await fetch(path,{method:opt.method||"GET",headers:{"Content-Type":"application/json",...(token?{Authorization:"Bearer "+token}:{})},body:opt.body?JSON.stringify(opt.body):undefined});
   let j={};try{j=await r.json()}catch(e){}
+  const nt=r.headers.get("X-Token");if(nt&&token){token=nt;try{localStorage.setItem(KADM,JSON.stringify({token}))}catch(e){}} // login renovado
   if(r.status===401){token="";try{localStorage.removeItem(KADM)}catch(e){}me=null;render();throw new Error(j.erro||"Entre de novo")}
   if(!r.ok||j.ok===false)throw new Error(j.erro||("O servidor respondeu "+r.status));
   return j;
@@ -286,7 +287,7 @@ function vConta(id){
   const log=D.log.filter(x=>x.usuario===c.id);
   return '<button class="back" data-act="voltar">← Todas as contas</button>'+
    '<div class="head"><div><h2>'+esc(c.nome)+'</h2><div class="meta">'+statusTag(c)+whatsTag(c.id)+'<span class="tag">Usuário: '+esc(c.login)+'</span><span class="tag">Envio: '+(c.envio.ligado?"ligado às "+esc(c.envio.horario):"desligado")+'</span><span class="tag">Último acesso: '+esc(quando(c.ultimo_acesso))+'</span></div></div>'+
-    (c.admin?'':'<div class="tools"><button class="btn ghost" data-act="senha" data-u="'+c.id+'">Trocar senha</button><button class="btn '+(c.ativo?"danger":"sec")+'" data-act="bloq" data-u="'+c.id+'">'+(c.ativo?"Bloquear":"Desbloquear")+'</button></div>')+'</div>'+
+    (c.admin?'':'<div class="tools"><button class="btn ghost" data-act="senha" data-u="'+c.id+'">Trocar senha</button><button class="btn ghost" data-act="desc" data-u="'+c.id+'">Desconectar</button><button class="btn '+(c.ativo?"danger":"sec")+'" data-act="bloq" data-u="'+c.id+'">'+(c.ativo?"Bloquear":"Desbloquear")+'</button></div>')+'</div>'+
    '<div class="kpis">'+
     kpi("Clientes",c.clients.length,c.loans.length+" empréstimos no total")+
     kpi("Empréstimos abertos",c.open.length,c.vencemHoje+" vencem hoje")+
@@ -400,13 +401,13 @@ function nova(){
   dialogo('<h3>Cadastrar usuário</h3><p class="note" style="margin:0">A pessoa entra no CashDay só com o usuário e a senha. Cada um vê apenas os próprios clientes.</p>'+
    '<div class="f"><label for="u-nome">Nome</label><input id="u-nome" required autocomplete="off"></div>'+
    '<div class="f"><label for="u-login">Usuário (para entrar)</label><input id="u-login" required autocapitalize="off" autocomplete="off" placeholder="ex.: joao"></div>'+
-   '<div class="f"><label for="u-pw">Senha (mínimo 6)</label><input id="u-pw" required minlength="6" autocomplete="new-password"></div>'+botoes("Cadastrar"),
+   '<div class="f"><label for="u-pw">Senha (mínimo 8, com letras e números)</label><input id="u-pw" required minlength="8" autocomplete="new-password"></div>'+botoes("Cadastrar"),
    async()=>{const body={nome:$("#u-nome").value.trim(),login:$("#u-login").value.trim().toLowerCase(),senha:$("#u-pw").value};
      await api("/api/usuarios",{method:"POST",body});toast("Usuário "+body.login+" cadastrado");carregar()});
 }
 function senha(id){
   const c=D.contas.find(x=>x.id===id);
-  dialogo('<h3>Nova senha para '+esc(c.nome)+'</h3><div class="f"><label for="u-npw">Nova senha (mínimo 6)</label><input id="u-npw" required minlength="6" autocomplete="new-password"></div>'+
+  dialogo('<h3>Nova senha para '+esc(c.nome)+'</h3><div class="f"><label for="u-npw">Nova senha (mínimo 8, com letras e números)</label><input id="u-npw" required minlength="8" autocomplete="new-password"></div>'+
    '<p class="note" style="margin:0">A pessoa sai dos aparelhos onde estava e entra de novo com a senha nova.</p>'+botoes("Salvar senha"),
    async()=>{await api("/api/usuarios/"+id,{method:"PUT",body:{senha:$("#u-npw").value}});toast("Senha trocada. Passe a nova senha para a pessoa.")});
 }
@@ -414,6 +415,12 @@ function bloq(id){
   const c=D.contas.find(x=>x.id===id);
   dialogo('<h3>'+(c.ativo?"Bloquear ":"Desbloquear ")+esc(c.nome)+'?</h3><p class="note" style="margin:0">'+(c.ativo?"A pessoa não consegue mais entrar e o robô para de cobrar os clientes dela. Os dados continuam guardados.":"A pessoa volta a entrar com o usuário e a senha dela.")+'</p>'+botoes(c.ativo?"Bloquear":"Desbloquear"),
    async()=>{await api("/api/usuarios/"+id,{method:"PUT",body:{ativo:!c.ativo}});toast(c.ativo?c.nome+" bloqueado":c.nome+" desbloqueado");carregar()});
+}
+
+function desc(id){
+  const c=D.contas.find(x=>x.id===id);
+  dialogo('<h3>Desconectar '+esc(c.nome)+'?</h3><p class="note" style="margin:0">A pessoa sai de todos os aparelhos e precisa entrar de novo com o usuário e a senha. Use se ela perdeu o celular ou desconfia que alguém entrou na conta.</p>'+botoes("Desconectar"),
+   async()=>{await api("/api/usuarios/"+id,{method:"PUT",body:{desconectar:true}});toast(c.nome+" foi desconectado de todos os aparelhos")});
 }
 
 /* ---------- eventos ---------- */
@@ -429,6 +436,7 @@ document.addEventListener("click",e=>{
   else if(a==="nova")nova();
   else if(a==="senha")senha(Number(t.dataset.u));
   else if(a==="bloq")bloq(Number(t.dataset.u));
+  else if(a==="desc")desc(Number(t.dataset.u));
 });
 document.addEventListener("keydown",e=>{if(e.key==="Enter"&&e.target.dataset&&e.target.dataset.go)e.target.click()});
 document.addEventListener("input",e=>{if(e.target.id==="q"){V.q=e.target.value;render()}});

@@ -28,6 +28,13 @@ O administrador entra com o usuário `admin` (ou o de `ADMIN_USUARIO`) e a senha
 
 Cada usuário troca a própria senha em Ajustes > Sua conta > Trocar senha (os outros aparelhos dele precisam entrar de novo). O botão **Sair** fica no topo do app.
 
+### Segurança do login
+- **Senhas:** pelo menos 8 caracteres, com letras e números. Senhas comuns (`12345678`, `senha123`...) e senhas com o nome ou o usuário da pessoa são recusadas.
+- **Tentativas erradas:** 5 erros seguidos no mesmo usuário travam o login dele por 15 minutos (30 erros no mesmo IP travam o IP). A contagem fica na memória do servidor, então reiniciar o servidor zera as travas.
+- **Prazo do login:** vale 30 dias e se renova sozinho enquanto a pessoa usa o app. Quem ficar 30 dias sem abrir precisa entrar de novo.
+- **Sair dos outros aparelhos:** em Ajustes, desconecta todos os outros aparelhos da conta. O administrador também pode desconectar um usuário (no app, em Ver usuários, ou no painel, no botão Desconectar).
+- A `APP_SENHA` assina todos os logins: trocar essa senha no Railway desconecta todo mundo. Use uma senha longa (12 ou mais caracteres).
+
 ### Painel do administrador
 
 Abra `<endereço do Railway>/admin` no computador (ou toque em **Abrir painel do administrador** em Ajustes). Só entra o administrador. O painel mostra:
